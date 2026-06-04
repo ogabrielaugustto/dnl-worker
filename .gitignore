@@ -3,7 +3,9 @@ dist
 .env
 .env.*
 !.env.example
+supabase/.temp
 google-credentials.json
 *-credentials.json
 service-account*.json
 .DS_Store
+secrets

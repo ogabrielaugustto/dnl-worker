@@ -2,7 +2,10 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 
 import { verifyInternalSecret } from "../plugins/internal-auth.js";
-import { detectImageOnWeb } from "../../services/vision.service.js";
+import {
+  detectImageOnWeb,
+  VisionConfigurationError,
+} from "../../services/vision.service.js";
 
 const visionTestBodySchema = z.object({
   imageUrl: z.url(),
@@ -39,11 +42,28 @@ export async function visionRoutes(server: FastifyInstance): Promise<void> {
           result,
         };
       } catch (error) {
+        if (error instanceof VisionConfigurationError) {
+          request.log.warn(
+            {
+              event: "vision_test_failed",
+              imageUrl,
+              errorType: error.name,
+            },
+            "Vision test failed because Google Vision is not configured correctly",
+          );
+
+          reply.status(500).send({
+            ok: false,
+            message: error.message,
+          });
+          return;
+        }
+
         request.log.error(
           {
             event: "vision_test_failed",
             imageUrl,
-            error,
+            errorType: error instanceof Error ? error.name : "unknown_error",
           },
           "Vision test failed",
         );
