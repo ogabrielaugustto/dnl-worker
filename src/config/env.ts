@@ -8,7 +8,21 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(3333),
   INTERNAL_API_SECRET: z.string().min(1, "INTERNAL_API_SECRET is required"),
   SUPABASE_URL: z.url().optional(),
+  NEXT_PUBLIC_SUPABASE_URL: z.url().optional(),
+  SUPABASE_PUBLISHABLE_KEY: z.string().min(1).optional(),
+  SUPABASE_SERVICE_ROLE_KEY: z.string().min(1).optional(),
   SUPABASE_SECRET_KEY: z.string().min(1).optional(),
+  REDIS_URL: z.string().min(1, "REDIS_URL is required"),
+  R2_ACCOUNT_ID: z.string().min(1, "R2_ACCOUNT_ID is required"),
+  R2_ACCESS_KEY_ID: z.string().min(1, "R2_ACCESS_KEY_ID is required"),
+  R2_SECRET_ACCESS_KEY: z.string().min(1, "R2_SECRET_ACCESS_KEY is required"),
+  R2_BUCKET_ASSETS: z.string().min(1, "R2_BUCKET_ASSETS is required"),
+  R2_BUCKET_EVIDENCE: z.string().min(1, "R2_BUCKET_EVIDENCE is required"),
+  R2_PUBLIC_BASE_URL: z.string().optional(),
+  WORKER_ID: z.string().min(1).default("dnl-worker-local"),
+  SCHEDULER_INTERVAL_SECONDS: z.coerce.number().int().positive().default(300),
+  VISION_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(60),
+  SCREENSHOT_CONCURRENCY: z.coerce.number().int().positive().default(2),
   GOOGLE_CLOUD_PROJECT_ID: z.string().optional(),
   GOOGLE_APPLICATION_CREDENTIALS: z.string().optional(),
 });
@@ -24,4 +38,22 @@ if (!parsedEnv.success) {
   throw new Error(`Invalid environment configuration: ${JSON.stringify(formattedErrors)}`);
 }
 
-export const env = parsedEnv.data;
+const envData = parsedEnv.data;
+const supabaseUrl = envData.SUPABASE_URL ?? envData.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseServiceRoleKey = envData.SUPABASE_SERVICE_ROLE_KEY ?? envData.SUPABASE_SECRET_KEY;
+
+if (!supabaseUrl) {
+  throw new Error("Invalid environment configuration: SUPABASE_URL is required");
+}
+
+if (!supabaseServiceRoleKey) {
+  throw new Error("Invalid environment configuration: SUPABASE_SECRET_KEY is required");
+}
+
+export const env = {
+  ...envData,
+  SUPABASE_URL: supabaseUrl,
+  SUPABASE_SERVICE_ROLE_KEY: supabaseServiceRoleKey,
+};
+
+export type Env = typeof env;

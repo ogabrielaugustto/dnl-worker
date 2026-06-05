@@ -2,79 +2,85 @@
 
 ## 1. Contexto do Projeto
 
-Este repositório é o **dnl-worker**, o serviço operacional do projeto **DNL — Direito Na Lente**.
+Este repositório é o **dnl-worker**, o motor operacional do projeto **DNL — Direito Na Lente**.
 
-O DNL é uma plataforma SaaS para monitoramento e identificação de possíveis usos indevidos de imagens na internet. Fotógrafos, criadores, agências ou titulares de direitos autorais cadastram imagens na plataforma principal, e o sistema executa buscas recorrentes para encontrar possíveis usos dessas imagens na web.
+O DNL é uma plataforma SaaS para monitoramento de uso indevido de imagens na internet. O `dnl-platform` é o painel do cliente e do admin. O `dnl-worker` é responsável por execução pesada, recorrente e assíncrona.
 
-A plataforma principal fica em outro repositório:
+Repositório relacionado:
 
 ```txt
 dnl-platform
 ```
 
-Este repositório não é o painel, não é o frontend e não é o backend público principal.
-
-Este repositório é responsável por tarefas assíncronas, pesadas e operacionais.
-
-Fluxo geral do produto:
+Fluxo macro do produto:
 
 ```txt
-Usuário sobe imagem na dnl-platform
+Usuário sobe imagem no dnl-platform
    ↓
-dnl-platform salva imagem e cria configuração de monitoramento
+dnl-platform cria asset, asset_file e monitoring_rule
    ↓
-dnl-worker processa busca reversa via Google Cloud Vision
+dnl-worker cria/enfileira scan_jobs
    ↓
-dnl-worker captura evidência visual com Playwright
+dnl-worker chama Google Vision
    ↓
-dnl-worker salva resultados no banco/storage
+dnl-worker deduplica e atualiza detections
    ↓
-dnl-platform exibe as detecções para validação humana
+dnl-worker captura screenshots com Playwright
+   ↓
+dnl-worker salva evidências no R2 e metadados no Supabase
+   ↓
+dnl-platform exibe resultados para validação humana
 ```
+
+Este repositório:
+
+* não é frontend;
+* não é backend público principal;
+* não deve concentrar autenticação de usuário final;
+* não deve virar painel administrativo.
 
 ---
 
-## 2. Responsabilidade deste Repositório
+## 2. Responsabilidade Deste Repositório
 
 O `dnl-worker` deve ser responsável por:
 
-* Processar jobs de varredura de imagens.
-* Executar busca reversa usando Google Cloud Vision Web Detection.
-* Capturar screenshots de páginas encontradas usando Playwright.
-* Normalizar resultados retornados pela API do Google.
+* Criar jobs recorrentes a partir de `monitoring_rules`.
+* Reenfileirar jobs pendentes.
+* Processar `scan_jobs` com BullMQ.
+* Executar Google Cloud Vision Web Detection.
+* Normalizar resultados do Vision.
 * Deduplicar ocorrências.
-* Criar ou atualizar registros de detecção.
-* Atualizar status de jobs.
-* Registrar logs técnicos.
-* Aplicar retry em falhas controladas.
-* Expor endpoints internos protegidos para testes, scheduler e processamento.
+* Criar e atualizar `detections`.
+* Criar e atualizar `scan_runs`.
+* Capturar evidências com Playwright.
+* Subir screenshots para Cloudflare R2.
+* Atualizar `detection_evidences`.
+* Aplicar retry controlado.
+* Expor endpoints internos protegidos para health, scheduler, fila, métricas e testes.
+* Manter migrations do schema compartilhado com o `dnl-platform`.
 
 O `dnl-worker` não deve ser responsável por:
 
 * Renderizar telas.
-* Fazer painel administrativo.
-* Fazer painel do cliente.
-* Fazer login de usuário final.
-* Controlar permissões visuais.
-* Servir como API pública do SaaS.
-* Criar rotas públicas de CRUD.
-* Gerenciar billing.
-* Gerenciar planos comerciais.
-* Fazer automação jurídica completa.
-* Substituir o repositório `dnl-platform`.
+* Servir páginas públicas.
+* Implementar login, registro ou fluxo de sessão de usuário final.
+* Expor CRUD público de assets, detections ou billing.
+* Concentrar a lógica de painel do cliente ou admin.
+* Substituir o `dnl-platform`.
 
 Regra prática:
 
 ```txt
 Se é interface, fica no dnl-platform.
-Se é processamento pesado, recorrente ou assíncrono, fica no dnl-worker.
+Se é execução pesada, recorrente ou assíncrona, fica no dnl-worker.
 ```
 
 ---
 
-## 3. Stack Técnica
+## 3. Stack Técnica Atual
 
-Usar obrigatoriamente:
+Usar neste repositório:
 
 * Node.js
 * TypeScript
@@ -82,94 +88,94 @@ Usar obrigatoriamente:
 * Zod
 * dotenv
 * Pino / Pino Pretty
-* Google Cloud Vision SDK
-* Playwright
-
-Neste primeiro momento, não implementar ainda:
-
-* Supabase/Postgres
-* Cloudflare R2
-* Fila real
+* Supabase
+* PostgreSQL via Supabase
 * BullMQ
 * Redis
-* Sistema de scheduler completo
-* Geração de PDF
-* Integração com e-mail
-* Integração jurídica
+* Google Cloud Vision SDK
+* Playwright
+* Cloudflare R2
 
-A primeira etapa do worker é validar:
+Fora do escopo por enquanto:
 
-```txt
-Servidor Fastify
-   ↓
-Health check
-   ↓
-Endpoint interno protegido
-   ↓
-Google Vision Web Detection
-   ↓
-Playwright screenshot
-```
+* Backend público do produto.
+* Frontend.
+* Billing completo.
+* Automação jurídica completa.
+* IA própria.
+* Geração de PDF final.
+* E-mail e WhatsApp.
 
 ---
 
-## 4. Decisão Arquitetural
+## 4. Arquitetura Atual
 
-Este worker deve ser implementado como um serviço Fastify com endpoints internos protegidos.
-
-Ele pode ter uma API interna, mas não deve virar o backend principal do produto.
-
-Endpoints internos são aceitáveis para:
-
-* Health check.
-* Teste de Google Vision.
-* Teste de screenshot.
-* Disparo manual de jobs.
-* Disparo de scheduler.
-* Processamento de jobs pendentes.
-
-Endpoints que não devem existir neste repo:
+O worker já não está mais em fase de prova de conceito. A arquitetura esperada agora é operacional:
 
 ```txt
-POST /login
-POST /register
-GET /assets
-POST /assets
-GET /detections
-GET /dashboard
-GET /admin/users
-POST /billing
+Fastify
+  ├─ health + endpoints internos protegidos
+  ├─ scheduler trigger
+  ├─ queue trigger
+  └─ metrics
+
+Supabase
+  ├─ source of truth
+  ├─ assets / asset_files
+  ├─ monitoring_rules
+  ├─ scan_jobs / scan_runs
+  ├─ detections / detection_evidences
+  └─ shared schema owner
+
+BullMQ + Redis
+  ├─ scan-jobs
+  └─ capture-evidence
+
+Workers
+  ├─ Google Vision
+  ├─ detection upsert
+  ├─ evidence capture
+  └─ retry / concurrency / queue processing
+
+Cloudflare R2
+  └─ private screenshot evidence storage
 ```
 
-Esses endpoints pertencem ao `dnl-platform`.
+O Fastify é a camada HTTP interna. O core do processamento deve ficar desacoplado de rota HTTP.
 
 ---
 
-## 5. Comunicação com dnl-platform
+## 5. Comunicação com o dnl-platform
 
-A comunicação principal entre `dnl-platform` e `dnl-worker` deve acontecer via banco de dados.
+A integração principal entre `dnl-platform` e `dnl-worker` deve acontecer pelo banco compartilhado.
 
-Modelo ideal futuro:
+Contrato atual:
 
 ```txt
-dnl-platform cria asset
-dnl-platform cria monitoring_rule
-dnl-platform cria scan_job inicial/manual
-   ↓
-dnl-worker consulta scan_jobs pendentes
-dnl-worker processa
-dnl-worker atualiza detections/evidences
-   ↓
-dnl-platform exibe resultados
+dnl-platform cria:
+- assets
+- asset_files
+- monitoring_rules
+- scan_jobs manuais quando necessário
+
+dnl-worker faz:
+- scheduler recorrente
+- criação de scan_jobs automáticos
+- execução e retry
+- detections
+- evidences
+- atualização de estado
 ```
 
-A `dnl-platform` pode chamar o worker por endpoint interno para “acordar” o processamento:
+O `dnl-platform` pode acordar o worker por endpoint interno:
 
 ```txt
+POST /internal/scheduler/run
 POST /internal/jobs/run
+POST /internal/jobs/:id/run
 ```
 
-Mas a `dnl-platform` não deve enviar imagem e esperar todo o processamento na mesma request.
+Mas o `dnl-platform` não deve enviar imagem e ficar esperando todo o processamento dentro da mesma request.
 
 Errado:
 
@@ -180,40 +186,34 @@ platform envia imagem → worker processa tudo → platform espera resposta long
 Certo:
 
 ```txt
-platform cria job no banco → worker processa assíncrono → platform lê resultado depois
+platform grava intenção no banco → worker executa assíncrono → platform lê resultado depois
 ```
 
 ---
 
-## 6. HTTPS e Segurança
+## 6. Segurança
 
 Em produção, o worker deve ser acessado via HTTPS.
 
-Em desenvolvimento local, pode usar HTTP:
+Local:
 
 ```txt
 http://localhost:3333
 ```
 
-Em produção, usar HTTPS fornecido pelo provedor:
+Produção esperada:
 
 ```txt
 https://dnl-worker-production.up.railway.app
 ```
 
-Ou domínio próprio:
-
-```txt
-https://worker.direitonalente.com.br
-```
-
-Todos os endpoints internos devem exigir o header:
+Todos os endpoints internos devem exigir:
 
 ```txt
 x-internal-secret
 ```
 
-Esse valor deve ser comparado com a variável:
+Comparado com:
 
 ```txt
 INTERNAL_API_SECRET
@@ -221,25 +221,31 @@ INTERNAL_API_SECRET
 
 Regras obrigatórias:
 
-* Nunca expor endpoint `/internal/*` sem proteção.
+* Nunca expor `/internal/*` sem proteção.
 * Nunca logar `INTERNAL_API_SECRET`.
 * Nunca retornar secrets em resposta.
 * Nunca commitar `.env`.
 * Nunca commitar credenciais Google.
 * Nunca commitar service account JSON.
-* Nunca expor `SUPABASE_SERVICE_ROLE_KEY` quando ela for adicionada futuramente.
+* Nunca logar `SUPABASE_SERVICE_ROLE_KEY`.
+* Nunca logar credenciais R2.
+* Nunca gerar URL pública permanente para evidência privada por conveniência.
 
 ---
 
 ## 7. Estrutura de Pastas Esperada
 
-Estrutura inicial:
+Estrutura atual esperada:
 
 ```txt
 dnl-worker/
 ├── src/
 │   ├── config/
-│   │   └── env.ts
+│   │   ├── env.ts
+│   │   ├── logger.ts
+│   │   ├── redis.ts
+│   │   ├── r2.ts
+│   │   └── supabase.ts
 │   │
 │   ├── http/
 │   │   ├── server.ts
@@ -247,142 +253,181 @@ dnl-worker/
 │   │   │   └── internal-auth.ts
 │   │   └── routes/
 │   │       ├── health.routes.ts
-│   │       ├── vision.routes.ts
-│   │       └── screenshots.routes.ts
+│   │       ├── jobs.routes.ts
+│   │       ├── metrics.routes.ts
+│   │       ├── scheduler.routes.ts
+│   │       ├── screenshots.routes.ts
+│   │       └── vision.routes.ts
+│   │
+│   ├── modules/
+│   │   ├── detections/
+│   │   ├── evidence/
+│   │   ├── jobs/
+│   │   ├── scans/
+│   │   ├── scheduler/
+│   │   ├── shared/
+│   │   ├── storage/
+│   │   └── vision/
 │   │
 │   ├── services/
-│   │   ├── vision.service.ts
-│   │   └── screenshot.service.ts
+│   │   ├── screenshot.service.ts
+│   │   └── vision.service.ts
 │   │
 │   └── index.ts
 │
+├── supabase/
+│   └── migrations/
 ├── .env.example
-├── .gitignore
 ├── AGENTS.md
 ├── README.md
 ├── package.json
 └── tsconfig.json
 ```
 
-Estrutura futura esperada:
+Regras:
 
-```txt
-dnl-worker/
-├── src/
-│   ├── config/
-│   ├── db/
-│   │   ├── client.ts
-│   │   └── queries/
-│   │
-│   ├── http/
-│   │   ├── server.ts
-│   │   ├── plugins/
-│   │   └── routes/
-│   │
-│   ├── jobs/
-│   │   ├── scan-asset.job.ts
-│   │   ├── capture-screenshot.job.ts
-│   │   ├── generate-report.job.ts
-│   │   └── process-pending-jobs.ts
-│   │
-│   ├── services/
-│   │   ├── vision.service.ts
-│   │   ├── screenshot.service.ts
-│   │   ├── storage.service.ts
-│   │   ├── jobs.service.ts
-│   │   └── detections.service.ts
-│   │
-│   ├── scheduler/
-│   │   └── run-monitoring-rules.ts
-│   │
-│   └── index.ts
-```
+* Rotas não devem conter regra de negócio pesada.
+* Integrações externas ficam em módulos e serviços.
+* Operação de banco deve ser explícita e organizada.
+* Migrations SQL são parte central deste repo.
 
 ---
 
-## 8. Endpoints Iniciais
+## 8. Endpoints Atuais
 
-Implementar nesta primeira etapa:
+Público:
 
 ```txt
-GET  /health
+GET /health
+```
+
+Internos protegidos:
+
+```txt
+GET  /internal/metrics
+POST /internal/jobs/run
+POST /internal/jobs/:id/run
+POST /internal/scheduler/run
 POST /internal/vision/test
 POST /internal/screenshots/test
 ```
 
-### `GET /health`
-
-Endpoint público simples para verificar se o serviço está online.
-
-Resposta esperada:
-
-```json
-{
-  "ok": true,
-  "service": "dnl-worker",
-  "timestamp": "2026-01-01T00:00:00.000Z"
-}
-```
-
-### `POST /internal/vision/test`
-
-Endpoint protegido para testar Google Cloud Vision Web Detection.
-
-Header obrigatório:
+Endpoints que não devem existir aqui:
 
 ```txt
-x-internal-secret
+POST /login
+POST /register
+GET /dashboard
+GET /assets
+POST /assets
+GET /detections
+POST /billing
 ```
 
-Body esperado:
-
-```json
-{
-  "imageUrl": "https://example.com/image.jpg"
-}
-```
-
-Resposta esperada:
-
-```json
-{
-  "ok": true,
-  "imageUrl": "https://example.com/image.jpg",
-  "result": {}
-}
-```
-
-### `POST /internal/screenshots/test`
-
-Endpoint protegido para testar captura de screenshot.
-
-Header obrigatório:
-
-```txt
-x-internal-secret
-```
-
-Body esperado:
-
-```json
-{
-  "url": "https://example.com"
-}
-```
-
-Resposta esperada:
-
-```txt
-image/png
-```
-
-O endpoint deve retornar o PNG diretamente.
+Esses pertencem ao `dnl-platform`.
 
 ---
 
-## 9. Google Cloud Vision
+## 9. Banco de Dados e Fonte de Verdade
 
-O Google Cloud Vision deve ficar neste worker.
+Este repositório já usa banco de verdade.
+
+O schema compartilhado entre `dnl-worker` e `dnl-platform` fica neste repositório, via migrations em:
+
+```txt
+supabase/migrations/
+```
+
+Entidades centrais atuais:
+
+```txt
+organizations
+organization_members
+subscription_plans
+organization_subscriptions
+assets
+asset_files
+monitoring_rules
+scan_jobs
+scan_runs
+detections
+detection_evidences
+detection_actions
+audit_logs
+```
+
+Conceitos importantes:
+
+```txt
+Asset monitorado ≠ job eterno
+Monitoring rule ≠ scan job
+Scan job = execução específica
+Scan run = tentativa específica de execução
+Detection = ocorrência deduplicada
+Detection evidence = evidência capturada da ocorrência
+```
+
+Fluxo de estado:
+
+```txt
+asset
+   ↓
+monitoring_rule
+   ↓
+scan_job
+   ↓
+scan_run
+   ↓
+detection
+   ↓
+detection_evidence
+```
+
+Se houver divergência entre código e documentação, as migrations são a fonte oficial.
+
+---
+
+## 10. Scheduler e Fila
+
+O scheduler já faz parte da arquitetura deste worker.
+
+Decisão atual:
+
+```txt
+dnl-platform cria monitoring_rules
+dnl-worker cria scan_jobs recorrentes
+BullMQ executa
+Supabase audita
+```
+
+Regras:
+
+* Não fazer `while (true)` consultando banco sem controle.
+* Usar scheduler em intervalo configurável.
+* Criar jobs recorrentes com idempotência por `dedupe_key`.
+* Reenfileirar jobs pendentes quando necessário.
+* Controlar concorrência e retry via BullMQ.
+* Não misturar screenshot e scan na mesma fila sem necessidade.
+
+Filas atuais:
+
+```txt
+scan-jobs
+capture-evidence
+```
+
+Idempotência esperada:
+
+```txt
+scheduled:{monitoring_rule_id}:{YYYY-MM-DD}
+manual:{asset_id}:{request_id}
+```
+
+---
+
+## 11. Google Vision
+
+O Google Cloud Vision fica neste worker.
 
 Usar:
 
@@ -390,61 +435,35 @@ Usar:
 Google Cloud Vision Web Detection
 ```
 
-Objetivo:
-
-* Encontrar páginas com imagens correspondentes.
-* Encontrar imagens visualmente similares.
-* Retornar URLs públicas relacionadas à imagem.
-* Retornar entidades e metadados úteis para análise.
-
-A função principal deve receber uma URL pública de imagem:
+Função principal:
 
 ```ts
 detectImageOnWeb(imageUrl: string)
 ```
 
-Retorno normalizado esperado:
+Objetivos:
 
-```ts
-type WebDetectionResult = {
-  webEntities: Array<{
-    entityId?: string;
-    description?: string;
-    score?: number;
-  }>;
-  pagesWithMatchingImages: Array<{
-    url?: string;
-    pageTitle?: string;
-  }>;
-  fullMatchingImages: Array<{
-    url?: string;
-  }>;
-  partialMatchingImages: Array<{
-    url?: string;
-  }>;
-  visuallySimilarImages: Array<{
-    url?: string;
-  }>;
-  raw: unknown;
-};
-```
+* Encontrar páginas relacionadas à imagem.
+* Encontrar imagens visualmente similares.
+* Encontrar URLs candidatas de uso.
+* Alimentar o pipeline de deduplicação e detecção.
 
 Regras:
 
-* Não assumir que todo resultado é infração.
-* Apenas registrar como possível ocorrência no futuro.
-* A validação humana é obrigatória.
-* Tratar falhas da API com mensagens seguras.
-* Não vazar credenciais em logs.
-* Não fazer retry infinito.
+* Não tratar resultado como infração automática.
+* A saída do Vision é sinal de possível ocorrência.
+* A validação humana continua obrigatória.
+* Tratar falhas com erros seguros.
+* Nunca vazar credenciais.
+* Retry só em falhas transitórias.
 
 ---
 
-## 10. Playwright e Screenshots
+## 12. Screenshots e Evidências
 
-O Playwright deve ficar neste worker.
+O Playwright fica neste worker.
 
-A função principal deve receber uma URL pública:
+Função principal:
 
 ```ts
 captureScreenshot(url: string)
@@ -463,23 +482,47 @@ type ScreenshotResult = {
 Regras:
 
 * Usar Chromium headless.
-* Viewport inicial: 1440x1200.
-* Capturar screenshot full-page em PNG.
-* Usar timeout.
+* Viewport inicial `1440x1200`.
+* Capturar PNG full-page.
+* Aplicar timeout.
 * Fechar browser em `finally`.
-* Falha de screenshot deve ser tratada.
-* Futuramente, falha de screenshot não deve apagar uma detecção.
-* Não deixar processos Chromium pendurados.
+* Falha de screenshot não apaga detecção.
+* Evidência deve ser marcada como `failed` quando necessário.
+* Evidências devem ser privadas no R2 por padrão.
+
+Chave de storage esperada:
+
+```txt
+organizations/{orgId}/detections/{detectionId}/runs/{scanRunId}/screenshot.png
+```
 
 ---
 
-## 11. Variáveis de Ambiente
+## 13. Variáveis de Ambiente
 
-Criar `.env.example` com:
+O `.env.example` deve refletir o estado real do worker.
+
+Variáveis atuais esperadas:
 
 ```env
+SUPABASE_URL=
+SUPABASE_SERVICE_ROLE_KEY=
+
+REDIS_URL=
+
+R2_ACCOUNT_ID=
+R2_ACCESS_KEY_ID=
+R2_SECRET_ACCESS_KEY=
+R2_BUCKET_ASSETS=
+R2_BUCKET_EVIDENCE=
+R2_PUBLIC_BASE_URL=
+
 NODE_ENV=development
 PORT=3333
+WORKER_ID=dnl-worker-local
+SCHEDULER_INTERVAL_SECONDS=300
+VISION_RATE_LIMIT_PER_MINUTE=60
+SCREENSHOT_CONCURRENCY=2
 
 INTERNAL_API_SECRET=change-me
 
@@ -489,313 +532,219 @@ GOOGLE_APPLICATION_CREDENTIALS=
 
 Regras:
 
-* `PORT` deve ser convertido para number.
+* `PORT` deve virar `number`.
 * `NODE_ENV` deve aceitar `development`, `test`, `production`.
 * `INTERNAL_API_SECRET` é obrigatório.
-* `GOOGLE_APPLICATION_CREDENTIALS` pode ficar vazio no `.env.example`.
-* As credenciais reais do Google nunca devem ser commitadas.
+* `SUPABASE_SERVICE_ROLE_KEY` é obrigatório.
+* `REDIS_URL` é obrigatório.
+* Credenciais reais nunca devem ser commitadas.
+* Compatibilidade temporária com nomes legados é aceitável, mas o padrão novo é o oficial.
 
 ---
 
-## 12. TypeScript
+## 14. TypeScript e Padrões de Código
 
 Configuração esperada:
 
 * `strict: true`
 * `rootDir: "src"`
 * `outDir: "dist"`
-* Target moderno.
-* ES Modules.
-* Sem `any` desnecessário.
-* Preferir tipos explícitos em services.
-* Funções pequenas e testáveis.
+* Target moderno
+* ES Modules
+* Sem `any` desnecessário
+* Tipos explícitos em integrações e repositórios
 
----
+Padrões:
 
-## 13. Scripts Esperados
-
-No `package.json`, manter:
-
-```json
-{
-  "scripts": {
-    "dev": "tsx watch src/index.ts",
-    "build": "tsc",
-    "start": "node dist/index.js",
-    "typecheck": "tsc --noEmit"
-  }
-}
-```
-
-Pode adicionar scripts auxiliares se necessário, mas não remover os principais.
-
----
-
-## 14. Padrões de Código
-
-Usar inglês no código.
-
-Exemplos:
-
-```txt
-vision.service.ts
-screenshot.service.ts
-internal-auth.ts
-health.routes.ts
-captureScreenshot
-detectImageOnWeb
-verifyInternalSecret
-```
+* Código em inglês.
+* Separar HTTP, domínio, integrações e infra.
+* Zod para validação de entrada.
+* Funções pequenas e previsíveis.
+* Services e repositories para lógica operacional.
+* Erros seguros para resposta HTTP.
+* Logs estruturados com contexto.
 
 Evitar:
 
-* Arquivos gigantes.
-* Lógica de negócio dentro das rotas.
-* Duplicação de validação.
+* Lógica pesada em rotas.
 * `catch` vazio.
 * `console.log` espalhado.
 * Secrets em logs.
 * Código morto.
-* Dependências sem necessidade.
-
-Preferir:
-
-* Zod para validação de entrada.
-* Services para integrações externas.
-* Routes apenas orquestrando request/response.
-* Logs estruturados com contexto.
-* Erros seguros para resposta HTTP.
-* Erros detalhados apenas em logs internos, sem secrets.
+* Acoplamento do core com Fastify.
 
 ---
 
 ## 15. Logging
 
-Usar logger do Fastify/Pino.
+Usar Pino/Fastify com logs estruturados.
 
 Logs úteis:
 
 ```txt
 server_started
+shutdown_started
+internal_auth_failed
 vision_test_started
 vision_test_failed
 screenshot_test_started
 screenshot_test_failed
-internal_auth_failed
+scheduler_cycle_completed
+scheduler_cycle_failed
+scan_job_completed
+scan_job_failed
+evidence_capture_failed
+scan_worker_failed
+evidence_worker_failed
 ```
 
-Quando houver jobs no futuro, logs devem incluir:
+Contexto esperado quando aplicável:
 
 ```txt
 job_id
+scan_job_id
+scan_run_id
 asset_id
 organization_id
 detection_id
 status
 duration_ms
+error_code
 error_message
+retryable
 ```
 
-Não logar:
+Nunca logar:
 
 ```txt
 tokens
-secrets
 cookies
+internal secret
 service role key
 google credentials
-internal api secret
+r2 secret
 ```
 
 ---
 
-## 16. Futuras Tabelas do Banco
+## 16. Cloudflare R2
 
-Ainda não implementar banco nesta primeira fase, mas considerar que futuramente o worker irá operar sobre estas entidades:
+O worker já deve considerar o R2 parte da arquitetura oficial.
 
-```txt
-assets
-asset_files
-monitoring_rules
-scan_jobs
-scan_runs
-detections
-detection_evidences
-detection_actions
-```
+Regras:
 
-Conceito importante:
-
-```txt
-Imagem cadastrada não é job eterno.
-Imagem cadastrada é asset monitorado.
-Job é uma execução específica de busca.
-```
-
-Fluxo futuro:
-
-```txt
-asset
-   ↓
-monitoring_rule
-   ↓
-scan_job
-   ↓
-detection
-   ↓
-detection_evidence
-```
+* O `dnl-platform` pode usar R2 para assets originais.
+* O `dnl-worker` usa R2 para evidências.
+* Evidências devem ser privadas.
+* O banco guarda metadados e chaves, não o binário.
+* URLs públicas permanentes não devem ser pressupostas.
 
 ---
 
-## 17. Jobs Recorrentes
+## 17. Fora do Escopo
 
-Ainda não implementar scheduler nesta fase.
+Continua fora do escopo deste repositório:
 
-Mas a decisão futura é:
-
-```txt
-dnl-platform cria monitoring_rules.
-dnl-worker cria scan_jobs recorrentes a partir das monitoring_rules vencidas.
-```
-
-Exemplo:
-
-```txt
-monitoring_rules where next_run_at <= now() and is_active = true
-```
-
-O job não deve se repetir sozinho.
-
-A regra de monitoramento se repete.
-
-Correto:
-
-```txt
-monitoring_rule diária → cria um scan_job por dia
-```
-
-Errado:
-
-```txt
-scan_job eterno que fica rodando para sempre
-```
-
----
-
-## 18. Fora do Escopo Agora
-
-Não implementar nesta fase:
-
-* Supabase.
-* PostgreSQL.
-* Cloudflare R2.
-* Upload de imagens.
-* Persistência de resultados.
-* Filas.
-* Redis.
-* BullMQ.
-* Scheduler.
-* PDF.
-* Login.
+* Frontend.
 * Dashboard.
-* Admin.
-* Billing.
-* Crawler próprio.
-* IA própria.
+* Auth de usuário final.
+* Billing completo.
+* Painel administrativo público.
 * Sistema jurídico automatizado.
-* Integração com e-mail.
-* Integração com WhatsApp.
+* Crawler próprio geral.
+* IA própria.
+* WhatsApp e e-mail.
+* Categoria de asset no worker, por enquanto.
 
-A prioridade atual é validar o motor técnico:
+---
+
+## 18. Critérios de Aceite Atuais
+
+Uma entrega relevante neste worker deve preservar ou melhorar:
 
 ```txt
-Fastify + Google Vision + Playwright
+[ ] npm install funciona
+[ ] npm run dev sobe o worker
+[ ] npm run typecheck passa
+[ ] npm run build passa
+[ ] GET /health responde com estado do serviço
+[ ] Endpoints internos exigem x-internal-secret
+[ ] Scheduler consegue criar/enfileirar jobs vencidos
+[ ] Scan job processa Google Vision
+[ ] Deduplicação evita duplicar detections
+[ ] Evidence job grava screenshot no R2
+[ ] Falhas geram status corretos em scan_jobs / scan_runs / detection_evidences
+[ ] Não há secrets no código ou nos logs
+[ ] README continua coerente com a implementação
 ```
 
 ---
 
-## 19. Critérios de Aceite da Primeira Base
-
-A primeira implementação deve ser considerada pronta quando:
-
-```txt
-[ ] npm install funciona.
-[ ] npm run dev sobe o servidor.
-[ ] npm run typecheck passa.
-[ ] GET /health responde corretamente.
-[ ] POST /internal/screenshots/test retorna PNG.
-[ ] POST /internal/vision/test chama Google Vision quando credenciais estiverem configuradas.
-[ ] Endpoints internos exigem x-internal-secret.
-[ ] Payloads são validados com Zod.
-[ ] Não há secrets no código.
-[ ] Estrutura de pastas está organizada.
-[ ] README explica como rodar e testar.
-```
-
----
-
-## 20. Como o Agente Deve Trabalhar
+## 19. Como o Agente Deve Trabalhar
 
 Antes de alterar código:
 
 1. Ler este arquivo.
-2. Entender que este repo é apenas o worker.
-3. Não criar frontend.
-4. Não criar rotas públicas de produto.
-5. Não introduzir banco antes da etapa definida.
-6. Não introduzir fila antes da etapa definida.
-7. Manter o worker simples e modular.
+2. Confirmar que este repo é o motor operacional.
+3. Inspecionar as migrations se a tarefa tocar banco ou fluxo de dados.
+4. Não criar frontend.
+5. Não mover responsabilidade do painel para o worker sem necessidade real.
+6. Respeitar a separação entre `dnl-platform` e `dnl-worker`.
 
 Ao implementar:
 
-1. Criar mudanças pequenas.
+1. Fazer mudanças pequenas e modulares.
 2. Preservar TypeScript estrito.
-3. Validar entradas com Zod.
-4. Separar rotas de services.
-5. Tratar erros.
+3. Separar rotas, módulos e infra.
+4. Validar entradas com Zod.
+5. Tratar erros com segurança.
 6. Proteger endpoints internos.
-7. Atualizar README se mudar comando ou comportamento.
+7. Atualizar README e `.env.example` quando comportamento ou configuração mudar.
+8. Atualizar migrations quando o schema precisar mudar.
 
 Antes de finalizar:
 
 ```txt
 npm run typecheck
+npm run build
 ```
 
 Também verificar:
 
 ```txt
-[ ] Não há .env commitado.
-[ ] Não há credencial Google commitada.
-[ ] Não há secrets em logs.
-[ ] Não há endpoint interno sem proteção.
-[ ] Não há código de frontend.
+[ ] Não há .env commitado
+[ ] Não há credencial Google commitada
+[ ] Não há secret de Supabase commitado
+[ ] Não há secret de R2 commitado
+[ ] Não há endpoint interno sem proteção
+[ ] Não há código de frontend
 ```
 
 ---
 
-## 21. Princípio Técnico Central
+## 20. Princípio Técnico Central
 
 A regra principal deste repositório é:
 
 ```txt
-O dnl-worker executa processamento pesado.
+O dnl-worker é o motor.
 O dnl-platform cria intenção e mostra resultado.
-O banco coordena estado.
-O storage guarda arquivos.
-Google Vision encontra possíveis ocorrências.
-Playwright gera evidência visual.
-Humano valida a infração.
+O Supabase coordena estado.
+O Redis coordena execução de fila.
+O R2 guarda evidência.
+O Google Vision encontra possíveis ocorrências.
+O Playwright gera prova visual.
+O humano valida a infração.
 ```
 
-Não sofisticar antes de validar.
-
-A primeira vitória deste repositório é simples:
+Objetivo atual:
 
 ```txt
-Subir o worker
-testar Google Vision
-testar screenshot
-provar que o motor liga
+Operar de verdade
+agendar
+enfileirar
+processar
+deduplicar
+capturar evidência
+persistir estado corretamente
 ```

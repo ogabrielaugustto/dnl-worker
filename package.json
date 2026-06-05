@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "db:new": "npx supabase migration new",
     "db:push": "npx supabase db push --linked",
-    "db:remote-commit": "npx supabase db remote commit"
+    "db:remote-commit": "npx supabase db remote commit",
+    "redis": "docker run --name dnl-redis -p 6379:6379 redis:7"
   },
   "keywords": [
     "fastify",
@@ -22,10 +23,14 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1062.0",
     "@fastify/cors": "^11.1.0",
     "@google-cloud/vision": "^5.3.1",
+    "@supabase/supabase-js": "^2.107.0",
+    "bullmq": "^5.78.0",
     "dotenv": "^16.6.1",
     "fastify": "^5.6.1",
+    "ioredis": "^5.11.1",
     "pino": "^10.1.0",
     "pino-pretty": "^13.1.2",
     "playwright": "^1.54.2",

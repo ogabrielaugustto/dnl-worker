@@ -5,8 +5,12 @@ import { env } from "../config/env.js";
 import { healthRoutes } from "./routes/health.routes.js";
 import { screenshotsRoutes } from "./routes/screenshots.routes.js";
 import { visionRoutes } from "./routes/vision.routes.js";
+import { jobsRoutes } from "./routes/jobs.routes.js";
+import { schedulerRoutes } from "./routes/scheduler.routes.js";
+import { metricsRoutes } from "./routes/metrics.routes.js";
+import type { WorkerRuntime } from "../modules/jobs/worker-runtime.js";
 
-export async function buildServer(): Promise<FastifyInstance> {
+export async function buildServer(runtime: WorkerRuntime): Promise<FastifyInstance> {
   const server = Fastify({
     logger:
       env.NODE_ENV === "development"
@@ -22,11 +26,16 @@ export async function buildServer(): Promise<FastifyInstance> {
         : true,
   });
 
+  server.decorate("workerRuntime", runtime);
+
   await server.register(cors, {
     origin: false,
   });
 
   await server.register(healthRoutes);
+  await server.register(metricsRoutes, { prefix: "/internal/metrics" });
+  await server.register(schedulerRoutes, { prefix: "/internal/scheduler" });
+  await server.register(jobsRoutes, { prefix: "/internal/jobs" });
   await server.register(visionRoutes, { prefix: "/internal/vision" });
   await server.register(screenshotsRoutes, { prefix: "/internal/screenshots" });
 

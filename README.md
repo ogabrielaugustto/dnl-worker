@@ -1,15 +1,27 @@
 # dnl-worker
 
-Internal worker service for DNL (Direito Na Lente). This repository is responsible for operational processing such as Google Cloud Vision web detection tests and Playwright screenshot capture. It is not the public backend and it does not contain frontend code.
+Operational worker service for DNL (Direito Na Lente). This repository owns the shared Supabase schema and runs the heavy monitoring pipeline: scheduler, BullMQ workers, Google Vision web detection, Playwright screenshots, and private evidence uploads to Cloudflare R2.
 
-This repository is also the current source of truth for the shared Supabase database schema used by both `dnl-worker` and `dnl-platform`.
-
-## Requirements
+## Stack
 
 - Node.js 20+
-- npm
-- Supabase CLI
-- Google Cloud Vision credentials for Vision tests
+- TypeScript
+- Fastify
+- Supabase
+- BullMQ + Redis
+- Google Cloud Vision
+- Playwright
+- Cloudflare R2
+
+## What this worker does
+
+- Creates recurring `scan_jobs` from due `monitoring_rules`
+- Enqueues and processes scan jobs with BullMQ
+- Calls Google Vision using the primary asset file public URL
+- Upserts deduplicated `detections`
+- Captures evidence screenshots for new or missing evidence
+- Uploads screenshots to a private R2 bucket
+- Tracks execution state in `scan_jobs`, `scan_runs`, and `detection_evidences`
 
 ## Setup
 
@@ -18,16 +30,29 @@ npm install
 cp .env.example .env
 ```
 
-Update `.env` with your internal secret and, when using Google Vision, configure `GOOGLE_APPLICATION_CREDENTIALS` to point to your local Google service account JSON file.
-
-For database work, also configure:
+Required environment variables:
 
 ```env
 SUPABASE_URL=
+SUPABASE_PUBLISHABLE_KEY=
 SUPABASE_SECRET_KEY=
+REDIS_URL=
+R2_ACCOUNT_ID=
+R2_ACCESS_KEY_ID=
+R2_SECRET_ACCESS_KEY=
+R2_BUCKET_ASSETS=
+R2_BUCKET_EVIDENCE=
+INTERNAL_API_SECRET=
 ```
 
-The worker should use the Supabase service role key only on trusted backend paths. The platform should later use Supabase Auth and the publishable key with RLS-enabled queries.
+Google Vision requires a service account file:
+
+```env
+GOOGLE_CLOUD_PROJECT_ID=
+GOOGLE_APPLICATION_CREDENTIALS=/absolute/path/to/service-account.json
+```
+
+O worker usa `SUPABASE_URL` e `SUPABASE_SECRET_KEY` como contrato principal. `NEXT_PUBLIC_SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` continuam aceitos apenas como compatibilidade.
 
 ## Run
 
@@ -35,7 +60,11 @@ The worker should use the Supabase service role key only on trusted backend path
 npm run dev
 ```
 
-The server starts on `http://localhost:3333` by default.
+The HTTP service starts on `http://localhost:3333` and the same process also starts:
+
+- the recurring scheduler loop
+- the BullMQ `scan-jobs` worker
+- the BullMQ `capture-evidence` worker
 
 ## Scripts
 
@@ -44,21 +73,14 @@ npm run dev
 npm run build
 npm run start
 npm run typecheck
-```
-
-## Database workflow
-
-Supabase migrations live in [supabase/migrations](/C:/github/dnl-worker/supabase/migrations) and are written by hand in SQL so RLS, policies, helper functions, triggers, and indexes stay explicit.
-
-Available database scripts:
-
-```bash
-npm run db:new -- name_of_migration
+npm run db:new -- migration_name
 npm run db:push
 npm run db:remote-commit
 ```
 
-This repository does not use Docker or a local Supabase database. The workflow is remote-first against the linked Supabase project.
+## Database workflow
+
+Supabase migrations live in [supabase/migrations](/C:/github/dnl-worker/supabase/migrations). The worker repo is the schema owner for both `dnl-worker` and `dnl-platform`.
 
 Recommended flow:
 
@@ -67,48 +89,78 @@ npx supabase link --project-ref your-project-ref
 npm run db:push
 ```
 
-What the initial migration sets up:
+The operational runtime migration adds:
 
-- Multi-tenant tenant model with `organizations` and `organization_members`
-- `profiles` synced from `auth.users`
-- Lean SaaS subscription tables
-- Core monitoring tables for assets, monitoring rules, jobs, runs, detections, evidences, and actions
-- RLS on every app-facing table
-- Helper functions and policies for tenant isolation
-- Base plans seeded through a regular SQL migration
+- `scan_jobs.dedupe_key`, queue metadata and locking metadata
+- `scan_runs.context`
+- `detection_evidences.source_url_snapshot`
+- `worker_schedule_due_scan_jobs()` for atomic recurring scheduling
 
-Important implementation notes:
+## Internal endpoints
 
-- `dnl-worker` is the migration owner and trusted service-role consumer
-- `dnl-platform` should eventually connect directly to the same Supabase project through Auth + RLS
-- Basic reference data must be added through normal migrations, not `seed.sql`
-- Do not disable RLS for convenience
-- Do not commit secrets or Google credential files
-- File binaries belong in object storage; Postgres stores metadata and references only
+Public:
 
-## Test the health endpoint
+- `GET /health`
+
+Protected with `x-internal-secret`:
+
+- `POST /internal/scheduler/run`
+- `POST /internal/jobs/run`
+- `POST /internal/jobs/:id/run`
+- `GET /internal/metrics`
+- `POST /internal/vision/test`
+- `POST /internal/screenshots/test`
+
+## Examples
+
+Health:
 
 ```bash
 curl http://localhost:3333/health
 ```
 
-## Test screenshots
+Run scheduler manually:
+
+```bash
+curl -X POST http://localhost:3333/internal/scheduler/run \
+  -H "x-internal-secret: change-me"
+```
+
+Re-enqueue pending jobs:
+
+```bash
+curl -X POST http://localhost:3333/internal/jobs/run \
+  -H "x-internal-secret: change-me"
+```
+
+Get metrics:
+
+```bash
+curl http://localhost:3333/internal/metrics \
+  -H "x-internal-secret: change-me"
+```
+
+Screenshot test:
 
 ```bash
 curl -X POST http://localhost:3333/internal/screenshots/test \
   -H "content-type: application/json" \
   -H "x-internal-secret: change-me" \
-  -d '{"url":"https://example.com"}' \
+  -d "{\"url\":\"https://example.com\"}" \
   --output screenshot.png
 ```
 
-## Test Google Vision
+Vision test:
 
 ```bash
 curl -X POST http://localhost:3333/internal/vision/test \
   -H "content-type: application/json" \
   -H "x-internal-secret: change-me" \
-  -d '{"imageUrl":"https://example.com/image.jpg"}'
+  -d "{\"imageUrl\":\"https://example.com/image.jpg\"}"
 ```
 
-Google Vision only works when valid Google Cloud credentials are configured locally. Do not commit credential files into this repository.
+## Notes
+
+- Do not commit `.env`, Google credentials, or service role secrets.
+- `dnl-platform` should create assets, asset files, monitoring rules, and manual jobs; the worker owns execution.
+- Screenshots are stored privately in R2; consumer-facing signed URLs should be handled later by the platform or a dedicated internal endpoint.
