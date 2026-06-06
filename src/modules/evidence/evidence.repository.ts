@@ -10,7 +10,7 @@ export async function getLatestDetectionEvidence(
   const { data, error } = await supabase
     .from("detection_evidences")
     .select(
-      "id, organization_id, detection_id, scan_run_id, screenshot_storage_key, screenshot_public_url, captured_at, capture_status, capture_error_message, metadata, source_url_snapshot, created_at",
+      "id, organization_id, detection_id, scan_run_id, screenshot_storage_key, screenshot_public_url, matched_image_storage_key, captured_at, capture_status, capture_error_message, metadata, source_url_snapshot, matched_image_url_snapshot, created_at",
     )
     .eq("detection_id", detectionId)
     .order("created_at", { ascending: false })
@@ -34,6 +34,7 @@ export async function upsertPendingDetectionEvidence(
     detectionId: string;
     scanRunId: string;
     sourceUrl: string;
+    matchedImageUrl: string | null;
   },
 ): Promise<void> {
   const existing = await getLatestDetectionEvidence(supabase, params.detectionId);
@@ -45,6 +46,7 @@ export async function upsertPendingDetectionEvidence(
         capture_status: "pending",
         capture_error_message: null,
         source_url_snapshot: params.sourceUrl,
+        matched_image_url_snapshot: params.matchedImageUrl,
         metadata: {
           requeuedAt: new Date().toISOString(),
         },
@@ -67,6 +69,7 @@ export async function upsertPendingDetectionEvidence(
     scan_run_id: params.scanRunId,
     capture_status: "pending",
     source_url_snapshot: params.sourceUrl,
+    matched_image_url_snapshot: params.matchedImageUrl,
     metadata: {},
   });
 
@@ -106,8 +109,10 @@ export async function markEvidenceCaptured(
     detectionId: string;
     scanRunId: string;
     screenshotStorageKey: string;
+    matchedImageStorageKey: string | null;
     finalUrl: string;
     capturedAt: string;
+    metadata: Record<string, unknown>;
   },
 ): Promise<void> {
   const { error } = await supabase
@@ -116,11 +121,10 @@ export async function markEvidenceCaptured(
       capture_status: "captured",
       screenshot_storage_key: params.screenshotStorageKey,
       screenshot_public_url: null,
+      matched_image_storage_key: params.matchedImageStorageKey,
       captured_at: params.capturedAt,
       capture_error_message: null,
-      metadata: {
-        finalUrl: params.finalUrl,
-      },
+      metadata: params.metadata,
     })
     .eq("detection_id", params.detectionId)
     .eq("scan_run_id", params.scanRunId);
@@ -156,4 +160,24 @@ export async function markEvidenceFailed(
       retryable: true,
     });
   }
+}
+
+export async function hasOpenEvidenceForScanRun(
+  supabase: SupabaseClient,
+  scanRunId: string,
+): Promise<boolean> {
+  const { count, error } = await supabase
+    .from("detection_evidences")
+    .select("id", { count: "exact", head: true })
+    .eq("scan_run_id", scanRunId)
+    .in("capture_status", ["pending", "processing"]);
+
+  if (error) {
+    throw new AppError(error.message, {
+      code: "count_open_detection_evidences_failed",
+      retryable: true,
+    });
+  }
+
+  return (count ?? 0) > 0;
 }

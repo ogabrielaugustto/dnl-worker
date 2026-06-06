@@ -194,12 +194,15 @@ export async function completeScanRun(
   context: Record<string, unknown>,
 ): Promise<void> {
   const finishedAt = new Date();
-  const durationMs = Math.max(0, finishedAt.getTime() - new Date(startedAt).getTime());
+  const shouldFinalize = status !== "evidence_pending";
+  const durationMs = shouldFinalize
+    ? Math.max(0, finishedAt.getTime() - new Date(startedAt).getTime())
+    : null;
   const { error } = await supabase
     .from("scan_runs")
     .update({
       status,
-      finished_at: finishedAt.toISOString(),
+      finished_at: shouldFinalize ? finishedAt.toISOString() : null,
       duration_ms: durationMs,
       context,
     })
@@ -208,6 +211,50 @@ export async function completeScanRun(
   if (error) {
     throw new AppError(error.message, {
       code: "complete_scan_run_failed",
+      retryable: true,
+    });
+  }
+}
+
+export async function finalizeEvidencePendingScanRun(
+  supabase: SupabaseClient,
+  scanRunId: string,
+): Promise<void> {
+  const { data: scanRun, error: scanRunError } = await supabase
+    .from("scan_runs")
+    .select("id, started_at, status")
+    .eq("id", scanRunId)
+    .maybeSingle();
+
+  if (scanRunError) {
+    throw new AppError(scanRunError.message, {
+      code: "load_scan_run_for_finalize_failed",
+      retryable: true,
+    });
+  }
+
+  if (!scanRun || scanRun.status !== "evidence_pending") {
+    return;
+  }
+
+  const finishedAt = new Date();
+  const durationMs = Math.max(
+    0,
+    finishedAt.getTime() - new Date(scanRun.started_at as string).getTime(),
+  );
+  const { error } = await supabase
+    .from("scan_runs")
+    .update({
+      status: "completed",
+      finished_at: finishedAt.toISOString(),
+      duration_ms: durationMs,
+    })
+    .eq("id", scanRunId)
+    .eq("status", "evidence_pending");
+
+  if (error) {
+    throw new AppError(error.message, {
+      code: "finalize_scan_run_failed",
       retryable: true,
     });
   }

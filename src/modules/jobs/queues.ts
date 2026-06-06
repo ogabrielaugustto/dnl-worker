@@ -18,6 +18,7 @@ export type EvidenceQueuePayload = {
   detectionId: string;
   scanRunId: string;
   sourceUrl: string;
+  matchedImageUrl: string | null;
 };
 
 type QueueManagerOptions = {

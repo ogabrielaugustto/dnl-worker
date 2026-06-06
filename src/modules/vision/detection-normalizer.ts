@@ -9,23 +9,39 @@ export type DetectionCandidate = {
   pageTitle: string | null;
   domain: string | null;
   confidenceScore: number | null;
+  matchType: "full" | "partial" | "page";
   visionPayload: Record<string, unknown>;
 };
 
-type RawPage = {
+type VisionPage = {
   url?: string | null;
   pageTitle?: string | null;
   fullMatchingImages?: Array<{ url?: string | null }>;
   partialMatchingImages?: Array<{ url?: string | null }>;
 };
 
-type RawDetection = {
-  pagesWithMatchingImages?: RawPage[];
-};
+const MIN_CONFIDENCE_SCORE = 0.9;
+
+function normalizeConfidenceScore(score: number | null): number | null {
+  if (score === null || Number.isNaN(score)) {
+    return null;
+  }
+
+  if (score < 0) {
+    return 0;
+  }
+
+  if (score > 1) {
+    return 1;
+  }
+
+  return score;
+}
 
 function buildCandidate(
-  page: RawPage,
+  page: VisionPage,
   matchedImageUrl: string | null,
+  matchType: DetectionCandidate["matchType"],
   confidenceScore: number | null,
 ): DetectionCandidate | null {
   if (!page.url) {
@@ -47,26 +63,51 @@ function buildCandidate(
     pageTitle: page.pageTitle ?? null,
     domain: extractDomain(page.url),
     confidenceScore,
+    matchType,
     visionPayload: {
       page,
       matchedImageUrl,
+      matchType,
+      minimumConfidenceScore: MIN_CONFIDENCE_SCORE,
     },
   };
 }
 
+function resolveCandidateConfidenceScore(params: {
+  matchType: DetectionCandidate["matchType"];
+  pageConfidence: number | null;
+}) {
+  if (params.matchType === "full") {
+    return 1;
+  }
+
+  if (params.matchType === "partial") {
+    return normalizeConfidenceScore(params.pageConfidence ?? 0.89);
+  }
+
+  return normalizeConfidenceScore(params.pageConfidence);
+}
+
 export function normalizeVisionDetections(result: WebDetectionResult): DetectionCandidate[] {
-  const raw = result.raw as RawDetection | undefined;
-  const pages = raw?.pagesWithMatchingImages ?? [];
+  const pages = result.pagesWithMatchingImages;
   const candidates = new Map<string, DetectionCandidate>();
-  const defaultConfidence = result.webEntities[0]?.score ?? null;
+  const defaultConfidence = normalizeConfidenceScore(result.webEntities[0]?.score ?? null);
 
   for (const page of pages) {
     const matches = [...(page.fullMatchingImages ?? []), ...(page.partialMatchingImages ?? [])];
 
     if (matches.length === 0) {
-      const candidate = buildCandidate(page, null, defaultConfidence);
+      const candidate = buildCandidate(
+        page,
+        null,
+        "page",
+        resolveCandidateConfidenceScore({
+          matchType: "page",
+          pageConfidence: defaultConfidence,
+        }),
+      );
 
-      if (candidate) {
+      if (candidate && (candidate.confidenceScore ?? 0) >= MIN_CONFIDENCE_SCORE) {
         candidates.set(
           `${candidate.canonicalSourceUrl}|${candidate.canonicalMatchedImageUrl}`,
           candidate,
@@ -77,9 +118,20 @@ export function normalizeVisionDetections(result: WebDetectionResult): Detection
     }
 
     for (const match of matches) {
-      const candidate = buildCandidate(page, match.url ?? null, defaultConfidence);
+      const matchType = (page.fullMatchingImages ?? []).some((item) => item.url === match.url)
+        ? "full"
+        : "partial";
+      const candidate = buildCandidate(
+        page,
+        match.url ?? null,
+        matchType,
+        resolveCandidateConfidenceScore({
+          matchType,
+          pageConfidence: defaultConfidence,
+        }),
+      );
 
-      if (candidate) {
+      if (candidate && (candidate.confidenceScore ?? 0) >= MIN_CONFIDENCE_SCORE) {
         candidates.set(
           `${candidate.canonicalSourceUrl}|${candidate.canonicalMatchedImageUrl}`,
           candidate,

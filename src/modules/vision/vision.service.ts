@@ -14,6 +14,12 @@ export type WebDetectionResult = {
   pagesWithMatchingImages: Array<{
     url?: string;
     pageTitle?: string;
+    fullMatchingImages?: Array<{
+      url?: string;
+    }>;
+    partialMatchingImages?: Array<{
+      url?: string;
+    }>;
   }>;
   fullMatchingImages: Array<{
     url?: string;
@@ -103,6 +109,14 @@ export async function detectImageOnWeb(imageUrl: string): Promise<WebDetectionRe
         webDetection?.pagesWithMatchingImages?.map((page) => ({
           url: page.url || undefined,
           pageTitle: page.pageTitle || undefined,
+          fullMatchingImages:
+            page.fullMatchingImages?.map((image) => ({
+              url: image.url || undefined,
+            })) ?? [],
+          partialMatchingImages:
+            page.partialMatchingImages?.map((image) => ({
+              url: image.url || undefined,
+            })) ?? [],
         })) ?? [],
       fullMatchingImages:
         webDetection?.fullMatchingImages?.map((image) => ({

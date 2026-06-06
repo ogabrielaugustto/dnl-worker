@@ -19,8 +19,10 @@ Operational worker service for DNL (Direito Na Lente). This repository owns the 
 - Enqueues and processes scan jobs with BullMQ
 - Calls Google Vision using the primary asset file public URL
 - Upserts deduplicated `detections`
-- Captures evidence screenshots for new or missing evidence
-- Uploads screenshots to a private R2 bucket
+- Captures page screenshots for new or missing evidence
+- Preserves the matched image itself alongside the page screenshot
+- Stores a lightweight site snapshot with domain, page metadata, and owner hints
+- Uploads evidence artifacts to a private R2 bucket
 - Tracks execution state in `scan_jobs`, `scan_runs`, and `detection_evidences`
 
 ## Setup
@@ -94,6 +96,8 @@ The operational runtime migration adds:
 - `scan_jobs.dedupe_key`, queue metadata and locking metadata
 - `scan_runs.context`
 - `detection_evidences.source_url_snapshot`
+- `detection_evidences.matched_image_storage_key`
+- `detection_evidences.matched_image_url_snapshot`
 - `worker_schedule_due_scan_jobs()` for atomic recurring scheduling
 
 ## Internal endpoints
@@ -163,4 +167,4 @@ curl -X POST http://localhost:3333/internal/vision/test \
 
 - Do not commit `.env`, Google credentials, or service role secrets.
 - `dnl-platform` should create assets, asset files, monitoring rules, and manual jobs; the worker owns execution.
-- Screenshots are stored privately in R2; consumer-facing signed URLs should be handled later by the platform or a dedicated internal endpoint.
+- Screenshots and preserved matched images are stored privately in R2; consumer-facing signed URLs should be handled later by the platform or a dedicated internal endpoint.

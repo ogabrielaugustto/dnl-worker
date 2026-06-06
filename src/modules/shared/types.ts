@@ -116,10 +116,12 @@ export type DetectionEvidenceRecord = {
   scan_run_id: string | null;
   screenshot_storage_key: string | null;
   screenshot_public_url: string | null;
+  matched_image_storage_key: string | null;
   captured_at: string | null;
   capture_status: DatabaseEvidenceCaptureStatus;
   capture_error_message: string | null;
   metadata: Record<string, unknown>;
   source_url_snapshot: string | null;
+  matched_image_url_snapshot: string | null;
   created_at: string;
 };

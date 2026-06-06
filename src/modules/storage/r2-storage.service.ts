@@ -8,15 +8,27 @@ export async function uploadEvidenceScreenshot(
   key: string,
   buffer: Buffer,
 ): Promise<{ bucket: string; key: string }> {
+  return uploadEvidenceFile({
+    key,
+    buffer,
+    contentType: "image/png",
+  });
+}
+
+export async function uploadEvidenceFile(params: {
+  key: string;
+  buffer: Buffer;
+  contentType: string;
+}): Promise<{ bucket: string; key: string }> {
   const client = getR2Client();
 
   try {
     await client.send(
       new PutObjectCommand({
         Bucket: env.R2_BUCKET_EVIDENCE,
-        Key: key,
-        Body: buffer,
-        ContentType: "image/png",
+        Key: params.key,
+        Body: params.buffer,
+        ContentType: params.contentType,
       }),
     );
   } catch (error) {
@@ -29,6 +41,6 @@ export async function uploadEvidenceScreenshot(
 
   return {
     bucket: env.R2_BUCKET_EVIDENCE,
-    key,
+    key: params.key,
   };
 }

@@ -2,13 +2,16 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type pino from "pino";
 
 import { captureScreenshot } from "./screenshot.service.js";
+import { captureSiteSnapshot, downloadMatchedImage } from "./site-intel.service.js";
 import {
+  hasOpenEvidenceForScanRun,
   markEvidenceCaptured,
   markEvidenceFailed,
   markEvidenceProcessing,
 } from "./evidence.repository.js";
-import { uploadEvidenceScreenshot } from "../storage/r2-storage.service.js";
+import { uploadEvidenceFile, uploadEvidenceScreenshot } from "../storage/r2-storage.service.js";
 import { getErrorMessage } from "../shared/errors.js";
+import { finalizeEvidencePendingScanRun } from "../scans/scan-jobs.repository.js";
 
 export async function processEvidenceCapture(
   supabase: SupabaseClient,
@@ -18,22 +21,70 @@ export async function processEvidenceCapture(
     detectionId: string;
     scanRunId: string;
     sourceUrl: string;
+    matchedImageUrl: string | null;
   },
 ): Promise<void> {
   await markEvidenceProcessing(supabase, payload.detectionId, payload.scanRunId);
 
   try {
-    const screenshot = await captureScreenshot(payload.sourceUrl);
+    const [screenshot, siteSnapshot, matchedImage] = await Promise.all([
+      captureScreenshot(payload.sourceUrl),
+      captureSiteSnapshot(payload.sourceUrl).catch((error) => {
+        logger.warn(
+          {
+            event: "site_snapshot_failed",
+            detectionId: payload.detectionId,
+            scanRunId: payload.scanRunId,
+            error: getErrorMessage(error),
+          },
+          "Site snapshot failed",
+        );
+
+        return null;
+      }),
+      payload.matchedImageUrl
+        ? downloadMatchedImage(payload.matchedImageUrl).catch((error) => {
+            logger.warn(
+              {
+                event: "matched_image_download_failed",
+                detectionId: payload.detectionId,
+                scanRunId: payload.scanRunId,
+                matchedImageUrl: payload.matchedImageUrl,
+                error: getErrorMessage(error),
+              },
+              "Matched image download failed",
+            );
+
+            return null;
+          })
+        : Promise.resolve(null),
+    ]);
     const storageKey = `organizations/${payload.organizationId}/detections/${payload.detectionId}/runs/${payload.scanRunId}/screenshot.png`;
 
     await uploadEvidenceScreenshot(storageKey, screenshot.buffer);
+    let matchedImageStorageKey: string | null = null;
+
+    if (matchedImage) {
+      matchedImageStorageKey = `organizations/${payload.organizationId}/detections/${payload.detectionId}/runs/${payload.scanRunId}/matched-image`;
+
+      await uploadEvidenceFile({
+        key: matchedImageStorageKey,
+        buffer: matchedImage.body,
+        contentType: matchedImage.contentType,
+      });
+    }
 
     await markEvidenceCaptured(supabase, {
       detectionId: payload.detectionId,
       scanRunId: payload.scanRunId,
       screenshotStorageKey: storageKey,
+      matchedImageStorageKey,
       finalUrl: screenshot.finalUrl,
       capturedAt: screenshot.capturedAt,
+      metadata: {
+        finalUrl: screenshot.finalUrl,
+        siteSnapshot,
+      },
     });
   } catch (error) {
     const message = getErrorMessage(error);
@@ -55,5 +106,11 @@ export async function processEvidenceCapture(
     });
 
     throw error;
+  } finally {
+    const hasOpenEvidence = await hasOpenEvidenceForScanRun(supabase, payload.scanRunId);
+
+    if (!hasOpenEvidence) {
+      await finalizeEvidencePendingScanRun(supabase, payload.scanRunId);
+    }
   }
 }

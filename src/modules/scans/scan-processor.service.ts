@@ -74,7 +74,8 @@ export async function processScanJob(
         upserted.isNew ||
         !latestEvidence ||
         latestEvidence.capture_status !== "captured" ||
-        !latestEvidence.screenshot_storage_key;
+        !latestEvidence.screenshot_storage_key ||
+        (Boolean(upserted.detection.matched_image_url) && !latestEvidence.matched_image_storage_key);
 
       if (shouldCaptureEvidence) {
         await upsertPendingDetectionEvidence(supabase, {
@@ -82,6 +83,7 @@ export async function processScanJob(
           detectionId: upserted.detection.id,
           scanRunId: scanRun.id,
           sourceUrl: upserted.detection.source_url,
+          matchedImageUrl: upserted.detection.matched_image_url,
         });
 
         await queueManager.enqueueEvidenceJob({
@@ -89,6 +91,7 @@ export async function processScanJob(
           detectionId: upserted.detection.id,
           scanRunId: scanRun.id,
           sourceUrl: upserted.detection.source_url,
+          matchedImageUrl: upserted.detection.matched_image_url,
         });
 
         evidenceJobsQueued += 1;
