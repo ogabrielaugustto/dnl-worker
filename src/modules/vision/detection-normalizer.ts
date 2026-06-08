@@ -9,7 +9,7 @@ export type DetectionCandidate = {
   pageTitle: string | null;
   domain: string | null;
   confidenceScore: number | null;
-  matchType: "full" | "partial" | "page";
+  matchType: "full" | "partial" | "page" | "perceptual_hash";
   visionPayload: Record<string, unknown>;
 };
 

@@ -4,6 +4,30 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { QueueManager } from "../jobs/queues.js";
 import type { WorkerMetrics } from "../jobs/metrics.js";
 import { listPendingScanJobs, scheduleDueScanJobs } from "../scans/scan-jobs.repository.js";
+import { listDueMonitoredSources } from "../sources/sources.repository.js";
+
+function getSourcePriority(priority: string) {
+  return priority === "high" ? 50 : priority === "medium" ? 75 : 100;
+}
+
+export async function enqueueDueSourceCrawls(
+  supabase: SupabaseClient,
+  queueManager: QueueManager,
+  limit = 25,
+): Promise<number> {
+  const dueSources = await listDueMonitoredSources(supabase, limit);
+
+  for (const source of dueSources) {
+    await queueManager.enqueueSourceCrawlJob(
+      { sourceId: source.id },
+      {
+        priority: getSourcePriority(source.priority),
+      },
+    );
+  }
+
+  return dueSources.length;
+}
 
 export async function runSchedulerCycle(
   supabase: SupabaseClient,
@@ -23,19 +47,22 @@ export async function runSchedulerCycle(
     });
   }
 
-  metrics.recordSchedulerRun(scheduledJobs.length);
+  const sourceCrawlCount = await enqueueDueSourceCrawls(supabase, queueManager);
+
+  metrics.recordSchedulerRun(scheduledJobs.length + sourceCrawlCount);
 
   logger.info(
     {
       event: "scheduler_cycle_completed",
       scheduledCount: scheduledJobs.length,
+      sourceCrawlCount,
     },
     "Scheduler cycle completed",
   );
 
   return {
     scheduledCount: scheduledJobs.length,
-    enqueuedCount: scheduledJobs.length,
+    enqueuedCount: scheduledJobs.length + sourceCrawlCount,
   };
 }
 

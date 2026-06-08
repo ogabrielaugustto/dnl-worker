@@ -159,13 +159,16 @@ async function fetchRdap(domain: string) {
   }
 }
 
-export async function downloadMatchedImage(url: string): Promise<RemoteImageResult> {
+export async function downloadMatchedImage(
+  url: string,
+  refererUrl?: string,
+): Promise<RemoteImageResult> {
   const response = await fetch(url, {
     redirect: "follow",
     headers: {
       "user-agent": "DNL-Worker/1.0 (+https://direitonalente.com)",
       accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-      referer: url,
+      ...(refererUrl ? { referer: refererUrl } : {}),
     },
   });
 
@@ -177,9 +180,19 @@ export async function downloadMatchedImage(url: string): Promise<RemoteImageResu
     );
   }
 
+  const contentType = response.headers.get("content-type") ?? "application/octet-stream";
+
+  if (contentType.toLowerCase().startsWith("text/html")) {
+    throw new ExternalServiceError(
+      "Matched image URL returned HTML instead of an image",
+      "matched_image_download_failed",
+      true,
+    );
+  }
+
   return {
     body: Buffer.from(await response.arrayBuffer()),
-    contentType: response.headers.get("content-type") ?? "application/octet-stream",
+    contentType,
   };
 }
 

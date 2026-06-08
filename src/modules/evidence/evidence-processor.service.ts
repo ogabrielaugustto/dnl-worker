@@ -13,13 +13,38 @@ import { uploadEvidenceFile, uploadEvidenceScreenshot } from "../storage/r2-stor
 import { getErrorMessage } from "../shared/errors.js";
 import { finalizeEvidencePendingScanRun } from "../scans/scan-jobs.repository.js";
 
+type EvidenceArtifact<T> =
+  | {
+      status: "fulfilled";
+      value: T;
+    }
+  | {
+      status: "rejected";
+      errorMessage: string;
+    };
+
+async function settleEvidenceArtifact<T>(task: Promise<T>): Promise<EvidenceArtifact<T>> {
+  try {
+    return {
+      status: "fulfilled",
+      value: await task,
+    };
+  } catch (error) {
+    return {
+      status: "rejected",
+      errorMessage: getErrorMessage(error),
+    };
+  }
+}
+
 export async function processEvidenceCapture(
   supabase: SupabaseClient,
   logger: pino.Logger,
   payload: {
     organizationId: string;
     detectionId: string;
-    scanRunId: string;
+    scanRunId: string | null;
+    evidenceRunId: string;
     sourceUrl: string;
     matchedImageUrl: string | null;
   },
@@ -27,63 +52,96 @@ export async function processEvidenceCapture(
   await markEvidenceProcessing(supabase, payload.detectionId, payload.scanRunId);
 
   try {
-    const [screenshot, siteSnapshot, matchedImage] = await Promise.all([
-      captureScreenshot(payload.sourceUrl),
-      captureSiteSnapshot(payload.sourceUrl).catch((error) => {
-        logger.warn(
-          {
-            event: "site_snapshot_failed",
-            detectionId: payload.detectionId,
-            scanRunId: payload.scanRunId,
-            error: getErrorMessage(error),
-          },
-          "Site snapshot failed",
-        );
-
-        return null;
-      }),
+    const [screenshotResult, siteSnapshotResult, matchedImageResult] = await Promise.all([
+      settleEvidenceArtifact(captureScreenshot(payload.sourceUrl)),
+      settleEvidenceArtifact(captureSiteSnapshot(payload.sourceUrl)),
       payload.matchedImageUrl
-        ? downloadMatchedImage(payload.matchedImageUrl).catch((error) => {
-            logger.warn(
-              {
-                event: "matched_image_download_failed",
-                detectionId: payload.detectionId,
-                scanRunId: payload.scanRunId,
-                matchedImageUrl: payload.matchedImageUrl,
-                error: getErrorMessage(error),
-              },
-              "Matched image download failed",
-            );
-
-            return null;
-          })
-        : Promise.resolve(null),
+        ? settleEvidenceArtifact(downloadMatchedImage(payload.matchedImageUrl, payload.sourceUrl))
+        : Promise.resolve({ status: "fulfilled" as const, value: null }),
     ]);
-    const storageKey = `organizations/${payload.organizationId}/detections/${payload.detectionId}/runs/${payload.scanRunId}/screenshot.png`;
 
-    await uploadEvidenceScreenshot(storageKey, screenshot.buffer);
+    const warnings: string[] = [];
+    let screenshotStorageKey: string | null = null;
+
+    if (screenshotResult.status === "fulfilled") {
+      screenshotStorageKey = `organizations/${payload.organizationId}/detections/${payload.detectionId}/runs/${payload.evidenceRunId}/screenshot.png`;
+      await uploadEvidenceScreenshot(screenshotStorageKey, screenshotResult.value.buffer);
+    } else {
+      warnings.push(`Screenshot da pagina nao capturado: ${screenshotResult.errorMessage}`);
+      logger.warn(
+        {
+          event: "screenshot_capture_failed",
+          detectionId: payload.detectionId,
+          scanRunId: payload.scanRunId,
+          error: screenshotResult.errorMessage,
+        },
+        "Screenshot capture failed",
+      );
+    }
+
+    const siteSnapshot =
+      siteSnapshotResult.status === "fulfilled" ? siteSnapshotResult.value : null;
+
+    if (siteSnapshotResult.status === "rejected") {
+      warnings.push(`Snapshot tecnico do site nao capturado: ${siteSnapshotResult.errorMessage}`);
+      logger.warn(
+        {
+          event: "site_snapshot_failed",
+          detectionId: payload.detectionId,
+          scanRunId: payload.scanRunId,
+          error: siteSnapshotResult.errorMessage,
+        },
+        "Site snapshot failed",
+      );
+    }
+
     let matchedImageStorageKey: string | null = null;
 
-    if (matchedImage) {
-      matchedImageStorageKey = `organizations/${payload.organizationId}/detections/${payload.detectionId}/runs/${payload.scanRunId}/matched-image`;
+    if (matchedImageResult.status === "fulfilled" && matchedImageResult.value) {
+      matchedImageStorageKey = `organizations/${payload.organizationId}/detections/${payload.detectionId}/runs/${payload.evidenceRunId}/matched-image`;
 
       await uploadEvidenceFile({
         key: matchedImageStorageKey,
-        buffer: matchedImage.body,
-        contentType: matchedImage.contentType,
+        buffer: matchedImageResult.value.body,
+        contentType: matchedImageResult.value.contentType,
       });
+    } else if (matchedImageResult.status === "rejected") {
+      warnings.push(`Imagem encontrada nao preservada: ${matchedImageResult.errorMessage}`);
+      logger.warn(
+        {
+          event: "matched_image_download_failed",
+          detectionId: payload.detectionId,
+          scanRunId: payload.scanRunId,
+          matchedImageUrl: payload.matchedImageUrl,
+          error: matchedImageResult.errorMessage,
+        },
+        "Matched image download failed",
+      );
     }
+
+    if (!screenshotStorageKey && !matchedImageStorageKey) {
+      throw new Error(warnings.join(" | ") || "No evidence artifact was captured");
+    }
+
+    const finalUrl =
+      screenshotResult.status === "fulfilled" ? screenshotResult.value.finalUrl : payload.sourceUrl;
+    const capturedAt =
+      screenshotResult.status === "fulfilled"
+        ? screenshotResult.value.capturedAt
+        : new Date().toISOString();
 
     await markEvidenceCaptured(supabase, {
       detectionId: payload.detectionId,
       scanRunId: payload.scanRunId,
-      screenshotStorageKey: storageKey,
+      screenshotStorageKey,
       matchedImageStorageKey,
-      finalUrl: screenshot.finalUrl,
-      capturedAt: screenshot.capturedAt,
+      finalUrl,
+      capturedAt,
+      errorMessage: warnings.length > 0 ? warnings.join(" | ") : null,
       metadata: {
-        finalUrl: screenshot.finalUrl,
+        finalUrl,
         siteSnapshot,
+        captureWarnings: warnings,
       },
     });
   } catch (error) {
@@ -107,6 +165,10 @@ export async function processEvidenceCapture(
 
     throw error;
   } finally {
+    if (!payload.scanRunId) {
+      return;
+    }
+
     const hasOpenEvidence = await hasOpenEvidenceForScanRun(supabase, payload.scanRunId);
 
     if (!hasOpenEvidence) {

@@ -32,7 +32,7 @@ export async function upsertPendingDetectionEvidence(
   params: {
     organizationId: string;
     detectionId: string;
-    scanRunId: string;
+    scanRunId: string | null;
     sourceUrl: string;
     matchedImageUrl: string | null;
   },
@@ -40,7 +40,7 @@ export async function upsertPendingDetectionEvidence(
   const existing = await getLatestDetectionEvidence(supabase, params.detectionId);
 
   if (existing && existing.scan_run_id === params.scanRunId) {
-    const { error } = await supabase
+    let query = supabase
       .from("detection_evidences")
       .update({
         capture_status: "pending",
@@ -52,6 +52,7 @@ export async function upsertPendingDetectionEvidence(
         },
       })
       .eq("id", existing.id);
+    const { error } = await query;
 
     if (error) {
       throw new AppError(error.message, {
@@ -84,16 +85,17 @@ export async function upsertPendingDetectionEvidence(
 export async function markEvidenceProcessing(
   supabase: SupabaseClient,
   detectionId: string,
-  scanRunId: string,
+  scanRunId: string | null,
 ): Promise<void> {
-  const { error } = await supabase
+  let query = supabase
     .from("detection_evidences")
     .update({
       capture_status: "processing",
       capture_error_message: null,
     })
-    .eq("detection_id", detectionId)
-    .eq("scan_run_id", scanRunId);
+    .eq("detection_id", detectionId);
+  query = scanRunId ? query.eq("scan_run_id", scanRunId) : query.is("scan_run_id", null);
+  const { error } = await query;
 
   if (error) {
     throw new AppError(error.message, {
@@ -107,15 +109,16 @@ export async function markEvidenceCaptured(
   supabase: SupabaseClient,
   params: {
     detectionId: string;
-    scanRunId: string;
-    screenshotStorageKey: string;
+    scanRunId: string | null;
+    screenshotStorageKey: string | null;
     matchedImageStorageKey: string | null;
     finalUrl: string;
     capturedAt: string;
+    errorMessage: string | null;
     metadata: Record<string, unknown>;
   },
 ): Promise<void> {
-  const { error } = await supabase
+  let query = supabase
     .from("detection_evidences")
     .update({
       capture_status: "captured",
@@ -123,11 +126,14 @@ export async function markEvidenceCaptured(
       screenshot_public_url: null,
       matched_image_storage_key: params.matchedImageStorageKey,
       captured_at: params.capturedAt,
-      capture_error_message: null,
+      capture_error_message: params.errorMessage,
       metadata: params.metadata,
     })
-    .eq("detection_id", params.detectionId)
-    .eq("scan_run_id", params.scanRunId);
+    .eq("detection_id", params.detectionId);
+  query = params.scanRunId
+    ? query.eq("scan_run_id", params.scanRunId)
+    : query.is("scan_run_id", null);
+  const { error } = await query;
 
   if (error) {
     throw new AppError(error.message, {
@@ -141,18 +147,21 @@ export async function markEvidenceFailed(
   supabase: SupabaseClient,
   params: {
     detectionId: string;
-    scanRunId: string;
+    scanRunId: string | null;
     errorMessage: string;
   },
 ): Promise<void> {
-  const { error } = await supabase
+  let query = supabase
     .from("detection_evidences")
     .update({
       capture_status: "failed",
       capture_error_message: params.errorMessage,
     })
-    .eq("detection_id", params.detectionId)
-    .eq("scan_run_id", params.scanRunId);
+    .eq("detection_id", params.detectionId);
+  query = params.scanRunId
+    ? query.eq("scan_run_id", params.scanRunId)
+    : query.is("scan_run_id", null);
+  const { error } = await query;
 
   if (error) {
     throw new AppError(error.message, {

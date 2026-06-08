@@ -90,6 +90,7 @@ export async function processScanJob(
           organizationId: claimedJob.organization_id,
           detectionId: upserted.detection.id,
           scanRunId: scanRun.id,
+          evidenceRunId: scanRun.id,
           sourceUrl: upserted.detection.source_url,
           matchedImageUrl: upserted.detection.matched_image_url,
         });

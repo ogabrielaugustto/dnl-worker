@@ -1,6 +1,6 @@
 # dnl-worker
 
-Operational worker service for DNL (Direito Na Lente). This repository owns the shared Supabase schema and runs the heavy monitoring pipeline: scheduler, BullMQ workers, Google Vision web detection, Playwright screenshots, and private evidence uploads to Cloudflare R2.
+Operational worker service for DNL (Direito Na Lente). This repository owns the shared Supabase schema and runs the heavy monitoring pipeline: scheduler, BullMQ workers, Google Vision web detection, directed source crawling, Playwright screenshots, and private evidence uploads to Cloudflare R2.
 
 ## Stack
 
@@ -11,6 +11,7 @@ Operational worker service for DNL (Direito Na Lente). This repository owns the 
 - BullMQ + Redis
 - Google Cloud Vision
 - Playwright
+- Sharp
 - Cloudflare R2
 
 ## What this worker does
@@ -18,6 +19,8 @@ Operational worker service for DNL (Direito Na Lente). This repository owns the 
 - Creates recurring `scan_jobs` from due `monitoring_rules`
 - Enqueues and processes scan jobs with BullMQ
 - Calls Google Vision using the primary asset file public URL
+- Crawls configured public sources by sitemap/RSS/home discovery
+- Extracts page images and compares them against active asset fingerprints with perceptual hashes
 - Upserts deduplicated `detections`
 - Captures page screenshots for new or missing evidence
 - Preserves the matched image itself alongside the page screenshot
@@ -67,6 +70,7 @@ The HTTP service starts on `http://localhost:3333` and the same process also sta
 - the recurring scheduler loop
 - the BullMQ `scan-jobs` worker
 - the BullMQ `capture-evidence` worker
+- the BullMQ `source-crawl` worker
 
 ## Scripts
 
@@ -100,6 +104,13 @@ The operational runtime migration adds:
 - `detection_evidences.matched_image_url_snapshot`
 - `worker_schedule_due_scan_jobs()` for atomic recurring scheduling
 
+The directed crawl migration adds:
+
+- `monitored_sources` for global admin-managed source domains
+- `source_crawl_runs` for source crawl attempts and counters
+- `crawled_pages` for discovered/visited pages
+- `discovered_images` for extracted page images and perceptual hashes
+
 ## Internal endpoints
 
 Public:
@@ -111,6 +122,7 @@ Protected with `x-internal-secret`:
 - `POST /internal/scheduler/run`
 - `POST /internal/jobs/run`
 - `POST /internal/jobs/:id/run`
+- `POST /internal/sources/:id/crawl`
 - `GET /internal/metrics`
 - `POST /internal/vision/test`
 - `POST /internal/screenshots/test`
@@ -144,6 +156,13 @@ curl http://localhost:3333/internal/metrics \
   -H "x-internal-secret: change-me"
 ```
 
+Run a monitored source crawl:
+
+```bash
+curl -X POST http://localhost:3333/internal/sources/SOURCE_UUID/crawl \
+  -H "x-internal-secret: change-me"
+```
+
 Screenshot test:
 
 ```bash
@@ -167,4 +186,5 @@ curl -X POST http://localhost:3333/internal/vision/test \
 
 - Do not commit `.env`, Google credentials, or service role secrets.
 - `dnl-platform` should create assets, asset files, monitoring rules, and manual jobs; the worker owns execution.
+- `dnl-platform` may manage global `monitored_sources`; the worker owns crawling, matching, and evidence capture.
 - Screenshots and preserved matched images are stored privately in R2; consumer-facing signed URLs should be handled later by the platform or a dedicated internal endpoint.

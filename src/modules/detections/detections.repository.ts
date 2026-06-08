@@ -14,7 +14,7 @@ export async function upsertDetection(
   params: {
     organizationId: string;
     assetId: string;
-    scanJobId: string;
+    scanJobId: string | null;
     candidate: DetectionCandidate;
   },
 ): Promise<UpsertDetectionResult> {
