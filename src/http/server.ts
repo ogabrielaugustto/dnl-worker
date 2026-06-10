@@ -8,7 +8,6 @@ import { visionRoutes } from "./routes/vision.routes.js";
 import { jobsRoutes } from "./routes/jobs.routes.js";
 import { schedulerRoutes } from "./routes/scheduler.routes.js";
 import { metricsRoutes } from "./routes/metrics.routes.js";
-import { sourcesRoutes } from "./routes/sources.routes.js";
 import type { WorkerRuntime } from "../modules/jobs/worker-runtime.js";
 
 export async function buildServer(runtime: WorkerRuntime): Promise<FastifyInstance> {
@@ -39,7 +38,6 @@ export async function buildServer(runtime: WorkerRuntime): Promise<FastifyInstan
   await server.register(jobsRoutes, { prefix: "/internal/jobs" });
   await server.register(visionRoutes, { prefix: "/internal/vision" });
   await server.register(screenshotsRoutes, { prefix: "/internal/screenshots" });
-  await server.register(sourcesRoutes, { prefix: "/internal/sources" });
 
   return server;
 }

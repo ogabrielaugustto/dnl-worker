@@ -10,7 +10,3 @@ export function buildManualDedupeKey(assetId: string, requestId: string): string
 export function buildEvidenceJobId(detectionId: string, scanRunId: string): string {
   return `evidence-${detectionId}-${scanRunId}`;
 }
-
-export function buildSourceCrawlJobId(sourceId: string): string {
-  return `source-crawl-${sourceId}`;
-}

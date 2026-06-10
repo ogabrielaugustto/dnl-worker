@@ -3,18 +3,12 @@ import type pino from "pino";
 import { env } from "../../config/env.js";
 import { getRedisConnection } from "../../config/redis.js";
 import { getSupabaseAdminClient } from "../../config/supabase.js";
-import {
-  enqueueDueSourceCrawls,
-  enqueuePendingScanJobs,
-  runSchedulerCycle,
-} from "../scheduler/scheduler.service.js";
+import { enqueuePendingScanJobs, runSchedulerCycle } from "../scheduler/scheduler.service.js";
 import { processScanJob as processScanJobService } from "../scans/scan-processor.service.js";
 import { processEvidenceCapture } from "../evidence/evidence-processor.service.js";
-import { processSourceCrawl } from "../sources/source-crawler.service.js";
 import { QueueManager } from "./queues.js";
 import { WorkerMetrics } from "./metrics.js";
 import { getScanJobById } from "../scans/scan-jobs.repository.js";
-import { getMonitoredSourceByDomain } from "../sources/sources.repository.js";
 
 export class WorkerRuntime {
   private readonly supabase = getSupabaseAdminClient();
@@ -38,9 +32,6 @@ export class WorkerRuntime {
       },
       processEvidenceJob: async (payload) => {
         await processEvidenceCapture(this.supabase, this.logger, payload);
-      },
-      processSourceCrawlJob: async ({ sourceId }) => {
-        await processSourceCrawl(this.supabase, this.queueManager, this.logger, sourceId);
       },
     });
   }
@@ -83,7 +74,7 @@ export class WorkerRuntime {
     return enqueuePendingScanJobs(this.supabase, this.queueManager);
   }
 
-  async enqueueSpecificJob(scanJobId: string): Promise<{ sourceCrawlsEnqueued: number }> {
+  async enqueueSpecificJob(scanJobId: string): Promise<void> {
     const scanJob = await getScanJobById(this.supabase, scanJobId);
 
     await this.queueManager.enqueueScanJob(
@@ -93,30 +84,6 @@ export class WorkerRuntime {
         priority: scanJob.priority,
       },
     );
-
-    const sourceCrawlsEnqueued = await enqueueDueSourceCrawls(
-      this.supabase,
-      this.queueManager,
-      25,
-    );
-
-    return {
-      sourceCrawlsEnqueued,
-    };
-  }
-
-  async enqueueSpecificSourceCrawl(sourceId: string): Promise<void> {
-    await this.queueManager.enqueueSourceCrawlJob({ sourceId });
-  }
-
-  async enqueueSpecificSourceCrawlByDomain(domain: string): Promise<{ sourceId: string }> {
-    const source = await getMonitoredSourceByDomain(this.supabase, domain);
-
-    await this.enqueueSpecificSourceCrawl(source.id);
-
-    return {
-      sourceId: source.id,
-    };
   }
 
   async getHealth(): Promise<Record<string, unknown>> {

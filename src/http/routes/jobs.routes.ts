@@ -40,12 +40,11 @@ export async function jobsRoutes(server: FastifyInstance): Promise<void> {
         return;
       }
 
-      const result = await server.workerRuntime.enqueueSpecificJob(parsedParams.data.id);
+      await server.workerRuntime.enqueueSpecificJob(parsedParams.data.id);
 
       reply.send({
         ok: true,
         scanJobId: parsedParams.data.id,
-        sourceCrawlsEnqueued: result.sourceCrawlsEnqueued,
       });
     },
   );

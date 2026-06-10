@@ -7,9 +7,6 @@ export type WorkerMetricsSnapshot = {
   evidenceJobsEnqueued: number;
   evidenceJobsProcessed: number;
   evidenceJobsFailed: number;
-  sourceCrawlJobsEnqueued: number;
-  sourceCrawlJobsProcessed: number;
-  sourceCrawlJobsFailed: number;
   lastSchedulerRunAt: string | null;
 };
 
@@ -22,9 +19,6 @@ export class WorkerMetrics {
   private evidenceJobsEnqueued = 0;
   private evidenceJobsProcessed = 0;
   private evidenceJobsFailed = 0;
-  private sourceCrawlJobsEnqueued = 0;
-  private sourceCrawlJobsProcessed = 0;
-  private sourceCrawlJobsFailed = 0;
   private lastSchedulerRunAt: string | null = null;
 
   recordSchedulerRun(scheduledJobsCount: number): void {
@@ -57,18 +51,6 @@ export class WorkerMetrics {
     this.evidenceJobsFailed += 1;
   }
 
-  recordSourceCrawlJobEnqueued(): void {
-    this.sourceCrawlJobsEnqueued += 1;
-  }
-
-  recordSourceCrawlJobProcessed(): void {
-    this.sourceCrawlJobsProcessed += 1;
-  }
-
-  recordSourceCrawlJobFailed(): void {
-    this.sourceCrawlJobsFailed += 1;
-  }
-
   snapshot(): WorkerMetricsSnapshot {
     return {
       schedulerRuns: this.schedulerRuns,
@@ -79,9 +61,6 @@ export class WorkerMetrics {
       evidenceJobsEnqueued: this.evidenceJobsEnqueued,
       evidenceJobsProcessed: this.evidenceJobsProcessed,
       evidenceJobsFailed: this.evidenceJobsFailed,
-      sourceCrawlJobsEnqueued: this.sourceCrawlJobsEnqueued,
-      sourceCrawlJobsProcessed: this.sourceCrawlJobsProcessed,
-      sourceCrawlJobsFailed: this.sourceCrawlJobsFailed,
       lastSchedulerRunAt: this.lastSchedulerRunAt,
     };
   }

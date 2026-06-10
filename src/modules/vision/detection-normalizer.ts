@@ -1,4 +1,5 @@
 import type { WebDetectionResult } from "./vision.service.js";
+import { env } from "../../config/env.js";
 import { canonicalizeUrl, extractDomain } from "../shared/url.js";
 
 export type DetectionCandidate = {
@@ -9,7 +10,7 @@ export type DetectionCandidate = {
   pageTitle: string | null;
   domain: string | null;
   confidenceScore: number | null;
-  matchType: "full" | "partial" | "page" | "perceptual_hash";
+  matchType: "full" | "partial" | "page";
   visionPayload: Record<string, unknown>;
 };
 
@@ -19,8 +20,6 @@ type VisionPage = {
   fullMatchingImages?: Array<{ url?: string | null }>;
   partialMatchingImages?: Array<{ url?: string | null }>;
 };
-
-const MIN_CONFIDENCE_SCORE = 0.9;
 
 function normalizeConfidenceScore(score: number | null): number | null {
   if (score === null || Number.isNaN(score)) {
@@ -68,7 +67,8 @@ function buildCandidate(
       page,
       matchedImageUrl,
       matchType,
-      minimumConfidenceScore: MIN_CONFIDENCE_SCORE,
+      minimumConfidenceScore: env.VISION_MIN_CONFIDENCE_SCORE,
+      webDetectionMaxResults: env.VISION_WEB_DETECTION_MAX_RESULTS,
     },
   };
 }
@@ -107,7 +107,7 @@ export function normalizeVisionDetections(result: WebDetectionResult): Detection
         }),
       );
 
-      if (candidate && (candidate.confidenceScore ?? 0) >= MIN_CONFIDENCE_SCORE) {
+      if (candidate && (candidate.confidenceScore ?? 0) >= env.VISION_MIN_CONFIDENCE_SCORE) {
         candidates.set(
           `${candidate.canonicalSourceUrl}|${candidate.canonicalMatchedImageUrl}`,
           candidate,
@@ -131,7 +131,7 @@ export function normalizeVisionDetections(result: WebDetectionResult): Detection
         }),
       );
 
-      if (candidate && (candidate.confidenceScore ?? 0) >= MIN_CONFIDENCE_SCORE) {
+      if (candidate && (candidate.confidenceScore ?? 0) >= env.VISION_MIN_CONFIDENCE_SCORE) {
         candidates.set(
           `${candidate.canonicalSourceUrl}|${candidate.canonicalMatchedImageUrl}`,
           candidate,

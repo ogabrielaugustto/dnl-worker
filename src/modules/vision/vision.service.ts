@@ -94,6 +94,12 @@ export async function detectImageOnWeb(imageUrl: string): Promise<WebDetectionRe
           imageUri: imageUrl,
         },
       },
+      features: [
+        {
+          type: "WEB_DETECTION",
+          maxResults: env.VISION_WEB_DETECTION_MAX_RESULTS,
+        },
+      ],
     });
 
     const webDetection = result.webDetection;

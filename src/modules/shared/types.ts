@@ -19,9 +19,6 @@ export type DatabaseEvidenceCaptureStatus =
   | "captured"
   | "failed"
   | "skipped";
-export type SourcePriority = "high" | "medium" | "low";
-export type SourceType = "portal" | "blog" | "ecommerce" | "government" | "marketplace" | "other";
-export type SourceCrawlRunStatus = "processing" | "completed" | "failed";
 
 export type MonitoringRuleRecord = {
   id: string;
@@ -87,7 +84,6 @@ export type AssetWithPrimaryFileRecord = {
     original_file_name: string | null;
     mime_type: string | null;
     hash_sha256: string | null;
-    phash: string | null;
     is_primary: boolean;
   }>;
 };
@@ -127,51 +123,4 @@ export type DetectionEvidenceRecord = {
   source_url_snapshot: string | null;
   matched_image_url_snapshot: string | null;
   created_at: string;
-};
-
-export type MonitoredSourceRecord = {
-  id: string;
-  name: string;
-  domain: string;
-  base_url: string;
-  source_type: SourceType;
-  priority: SourcePriority;
-  crawl_frequency_hours: number;
-  discovery_modes: string[];
-  sitemap_urls: string[];
-  crawl_window_days: number;
-  max_pages_per_run: number;
-  is_active: boolean;
-  last_crawled_at: string | null;
-  created_at: string;
-  updated_at: string;
-};
-
-export type SourceCrawlRunRecord = {
-  id: string;
-  source_id: string;
-  status: SourceCrawlRunStatus;
-  started_at: string;
-  finished_at: string | null;
-  duration_ms: number | null;
-  pages_discovered: number;
-  pages_crawled: number;
-  images_discovered: number;
-  matches_created: number;
-  error_code: string | null;
-  error_message: string | null;
-  metadata: Record<string, unknown>;
-};
-
-export type CrawledPageRecord = {
-  id: string;
-  source_id: string;
-  crawl_run_id: string | null;
-  url: string;
-  canonical_url: string;
-  domain: string | null;
-  title: string | null;
-  status_code: number | null;
-  content_hash: string | null;
-  crawled_at: string;
 };

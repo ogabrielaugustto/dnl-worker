@@ -165,7 +165,7 @@ export async function getAssetWithPrimaryFile(
   const { data, error } = await supabase
     .from("assets")
     .select(
-      "id, organization_id, title, status, asset_files!inner(id, public_url, storage_key, original_file_name, mime_type, hash_sha256, phash, is_primary)",
+      "id, organization_id, title, status, asset_files!inner(id, public_url, storage_key, original_file_name, mime_type, hash_sha256, is_primary)",
     )
     .eq("id", assetId)
     .eq("organization_id", organizationId)

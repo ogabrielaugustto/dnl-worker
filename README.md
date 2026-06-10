@@ -1,6 +1,6 @@
 # dnl-worker
 
-Operational worker service for DNL (Direito Na Lente). This repository owns the shared Supabase schema and runs the heavy monitoring pipeline: scheduler, BullMQ workers, Google Vision web detection, directed source crawling, Playwright screenshots, and private evidence uploads to Cloudflare R2.
+Operational worker service for DNL (Direito Na Lente). This repository owns the shared Supabase schema and runs the heavy monitoring pipeline: scheduler, BullMQ workers, Google Vision web detection, Playwright screenshots, and private evidence uploads to Cloudflare R2.
 
 ## Stack
 
@@ -19,8 +19,6 @@ Operational worker service for DNL (Direito Na Lente). This repository owns the 
 - Creates recurring `scan_jobs` from due `monitoring_rules`
 - Enqueues and processes scan jobs with BullMQ
 - Calls Google Vision using the primary asset file public URL
-- Crawls configured public sources by sitemap/RSS/home discovery
-- Extracts page images and compares them against active asset fingerprints with perceptual hashes
 - Upserts deduplicated `detections`
 - Captures page screenshots for new or missing evidence
 - Preserves the matched image itself alongside the page screenshot
@@ -39,8 +37,7 @@ Required environment variables:
 
 ```env
 SUPABASE_URL=
-SUPABASE_PUBLISHABLE_KEY=
-SUPABASE_SECRET_KEY=
+SUPABASE_SERVICE_ROLE_KEY=
 REDIS_URL=
 R2_ACCOUNT_ID=
 R2_ACCESS_KEY_ID=
@@ -48,6 +45,8 @@ R2_SECRET_ACCESS_KEY=
 R2_BUCKET_ASSETS=
 R2_BUCKET_EVIDENCE=
 INTERNAL_API_SECRET=
+VISION_WEB_DETECTION_MAX_RESULTS=50
+VISION_MIN_CONFIDENCE_SCORE=0.75
 ```
 
 Google Vision requires a service account file:
@@ -57,7 +56,7 @@ GOOGLE_CLOUD_PROJECT_ID=
 GOOGLE_APPLICATION_CREDENTIALS=/absolute/path/to/service-account.json
 ```
 
-O worker usa `SUPABASE_URL` e `SUPABASE_SECRET_KEY` como contrato principal. `NEXT_PUBLIC_SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` continuam aceitos apenas como compatibilidade.
+O worker usa `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` como contrato principal. `NEXT_PUBLIC_SUPABASE_URL` e `SUPABASE_SECRET_KEY` continuam aceitos apenas como compatibilidade.
 
 ## Run
 
@@ -70,7 +69,6 @@ The HTTP service starts on `http://localhost:3333` and the same process also sta
 - the recurring scheduler loop
 - the BullMQ `scan-jobs` worker
 - the BullMQ `capture-evidence` worker
-- the BullMQ `source-crawl` worker
 
 ## Scripts
 
@@ -104,12 +102,16 @@ The operational runtime migration adds:
 - `detection_evidences.matched_image_url_snapshot`
 - `worker_schedule_due_scan_jobs()` for atomic recurring scheduling
 
-The directed crawl migration adds:
+The directed crawl cleanup migration removes the old portal crawler tables:
 
-- `monitored_sources` for global admin-managed source domains
-- `source_crawl_runs` for source crawl attempts and counters
-- `crawled_pages` for discovered/visited pages
-- `discovered_images` for extracted page images and perceptual hashes
+- `monitored_sources`
+- `source_seed_urls`
+- `source_crawl_runs`
+- `crawled_pages`
+- `discovered_images`
+- `asset_files.phash`
+
+Image search is performed only through Google Vision Web Detection. `VISION_WEB_DETECTION_MAX_RESULTS` asks Vision for more WEB_DETECTION results, and `VISION_MIN_CONFIDENCE_SCORE` controls how permissive candidate normalization is before human validation. Google Vision does not expose an official age/date-range parameter, so the worker cannot force a "last 20 years" search window.
 
 ## Internal endpoints
 
@@ -122,7 +124,6 @@ Protected with `x-internal-secret`:
 - `POST /internal/scheduler/run`
 - `POST /internal/jobs/run`
 - `POST /internal/jobs/:id/run`
-- `POST /internal/sources/:id/crawl`
 - `GET /internal/metrics`
 - `POST /internal/vision/test`
 - `POST /internal/screenshots/test`
@@ -156,13 +157,6 @@ curl http://localhost:3333/internal/metrics \
   -H "x-internal-secret: change-me"
 ```
 
-Run a monitored source crawl:
-
-```bash
-curl -X POST http://localhost:3333/internal/sources/SOURCE_UUID/crawl \
-  -H "x-internal-secret: change-me"
-```
-
 Screenshot test:
 
 ```bash
@@ -186,5 +180,5 @@ curl -X POST http://localhost:3333/internal/vision/test \
 
 - Do not commit `.env`, Google credentials, or service role secrets.
 - `dnl-platform` should create assets, asset files, monitoring rules, and manual jobs; the worker owns execution.
-- `dnl-platform` may manage global `monitored_sources`; the worker owns crawling, matching, and evidence capture.
+- Web image discovery is intentionally limited to Google Vision. Do not add portal/source crawling back into this worker.
 - Screenshots and preserved matched images are stored privately in R2; consumer-facing signed URLs should be handled later by the platform or a dedicated internal endpoint.

@@ -22,6 +22,8 @@ const envSchema = z.object({
   WORKER_ID: z.string().min(1).default("dnl-worker-local"),
   SCHEDULER_INTERVAL_SECONDS: z.coerce.number().int().positive().default(300),
   VISION_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(60),
+  VISION_WEB_DETECTION_MAX_RESULTS: z.coerce.number().int().positive().default(50),
+  VISION_MIN_CONFIDENCE_SCORE: z.coerce.number().min(0).max(1).default(0.75),
   SCREENSHOT_CONCURRENCY: z.coerce.number().int().positive().default(2),
   GOOGLE_CLOUD_PROJECT_ID: z.string().optional(),
   GOOGLE_APPLICATION_CREDENTIALS: z.string().optional(),
@@ -47,7 +49,7 @@ if (!supabaseUrl) {
 }
 
 if (!supabaseServiceRoleKey) {
-  throw new Error("Invalid environment configuration: SUPABASE_SECRET_KEY is required");
+  throw new Error("Invalid environment configuration: SUPABASE_SERVICE_ROLE_KEY is required");
 }
 
 export const env = {
