@@ -88,7 +88,7 @@ export async function detectImageOnWeb(imageUrl: string): Promise<WebDetectionRe
   const client = getVisionClient();
 
   try {
-    const [result] = await client.webDetection({
+    const [result] = await client.annotateImage({
       image: {
         source: {
           imageUri: imageUrl,
