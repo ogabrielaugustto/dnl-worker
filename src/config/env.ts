@@ -25,6 +25,12 @@ const envSchema = z.object({
   VISION_WEB_DETECTION_MAX_RESULTS: z.coerce.number().int().positive().default(50),
   VISION_MIN_CONFIDENCE_SCORE: z.coerce.number().min(0).max(1).default(0.75),
   SCREENSHOT_CONCURRENCY: z.coerce.number().int().positive().default(2),
+  WAYBACK_ENABLED: z.enum(["true", "false"]).default("true").transform((value) => value === "true"),
+  WAYBACK_SUBMISSION_INTERVAL_MS: z.coerce.number().int().positive().default(15_000),
+  WAYBACK_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
+  WAYBACK_STATUS_POLL_INTERVAL_MS: z.coerce.number().int().positive().default(3_000),
+  WAYBACK_STATUS_MAX_ATTEMPTS: z.coerce.number().int().positive().default(6),
+  WAYBACK_TIMELINE_LIMIT: z.coerce.number().int().positive().max(25).default(10),
   GOOGLE_CLOUD_PROJECT_ID: z.string().optional(),
   GOOGLE_APPLICATION_CREDENTIALS: z.string().optional(),
 });

@@ -22,6 +22,8 @@ import {
   VisionConfigurationError,
 } from "../vision/vision.service.js";
 import { AppError, getErrorMessage, isRetryableError } from "../shared/errors.js";
+import { env } from "../../config/env.js";
+import { ensureQueuedWaybackCapture } from "../wayback/wayback.repository.js";
 
 export async function processScanJob(
   supabase: SupabaseClient,
@@ -52,6 +54,7 @@ export async function processScanJob(
     const candidates = normalizeVisionDetections(visionResult);
 
     let evidenceJobsQueued = 0;
+    let waybackJobsQueued = 0;
     let newDetections = 0;
     let updatedDetections = 0;
 
@@ -67,6 +70,28 @@ export async function processScanJob(
         newDetections += 1;
       } else {
         updatedDetections += 1;
+      }
+
+      if (env.WAYBACK_ENABLED) {
+        const waybackCapture = await ensureQueuedWaybackCapture(supabase, {
+          organizationId: claimedJob.organization_id,
+          detectionId: upserted.detection.id,
+          scanRunId: scanRun.id,
+          sourceUrl: upserted.detection.source_url,
+          canonicalSourceUrl: upserted.detection.canonical_source_url,
+        });
+
+        if (waybackCapture.wasCreated) {
+          await queueManager.enqueueWaybackJob({
+            organizationId: claimedJob.organization_id,
+            detectionId: upserted.detection.id,
+            scanRunId: scanRun.id,
+            sourceUrl: upserted.detection.source_url,
+            canonicalSourceUrl: upserted.detection.canonical_source_url,
+          });
+
+          waybackJobsQueued += 1;
+        }
       }
 
       const latestEvidence = await getLatestDetectionEvidence(supabase, upserted.detection.id);
@@ -109,6 +134,7 @@ export async function processScanJob(
         newDetections,
         updatedDetections,
         evidenceJobsQueued,
+        waybackJobsQueued,
       },
     );
     await completeScanJob(supabase, claimedJob.id, scanRun.id);
@@ -122,6 +148,7 @@ export async function processScanJob(
         newDetections,
         updatedDetections,
         evidenceJobsQueued,
+        waybackJobsQueued,
       },
       "Scan job completed",
     );

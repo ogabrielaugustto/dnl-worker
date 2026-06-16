@@ -6,6 +6,7 @@ import { getSupabaseAdminClient } from "../../config/supabase.js";
 import { enqueuePendingScanJobs, runSchedulerCycle } from "../scheduler/scheduler.service.js";
 import { processScanJob as processScanJobService } from "../scans/scan-processor.service.js";
 import { processEvidenceCapture } from "../evidence/evidence-processor.service.js";
+import { processWaybackCapture } from "../wayback/wayback-processor.service.js";
 import { QueueManager } from "./queues.js";
 import { WorkerMetrics } from "./metrics.js";
 import { getScanJobById } from "../scans/scan-jobs.repository.js";
@@ -32,6 +33,9 @@ export class WorkerRuntime {
       },
       processEvidenceJob: async (payload) => {
         await processEvidenceCapture(this.supabase, this.logger, payload);
+      },
+      processWaybackJob: async (payload) => {
+        await processWaybackCapture(this.supabase, this.logger, payload);
       },
     });
   }

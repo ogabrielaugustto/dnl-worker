@@ -7,6 +7,9 @@ export type WorkerMetricsSnapshot = {
   evidenceJobsEnqueued: number;
   evidenceJobsProcessed: number;
   evidenceJobsFailed: number;
+  waybackJobsEnqueued: number;
+  waybackJobsProcessed: number;
+  waybackJobsFailed: number;
   lastSchedulerRunAt: string | null;
 };
 
@@ -19,6 +22,9 @@ export class WorkerMetrics {
   private evidenceJobsEnqueued = 0;
   private evidenceJobsProcessed = 0;
   private evidenceJobsFailed = 0;
+  private waybackJobsEnqueued = 0;
+  private waybackJobsProcessed = 0;
+  private waybackJobsFailed = 0;
   private lastSchedulerRunAt: string | null = null;
 
   recordSchedulerRun(scheduledJobsCount: number): void {
@@ -51,6 +57,18 @@ export class WorkerMetrics {
     this.evidenceJobsFailed += 1;
   }
 
+  recordWaybackJobEnqueued(): void {
+    this.waybackJobsEnqueued += 1;
+  }
+
+  recordWaybackJobProcessed(): void {
+    this.waybackJobsProcessed += 1;
+  }
+
+  recordWaybackJobFailed(): void {
+    this.waybackJobsFailed += 1;
+  }
+
   snapshot(): WorkerMetricsSnapshot {
     return {
       schedulerRuns: this.schedulerRuns,
@@ -61,6 +79,9 @@ export class WorkerMetrics {
       evidenceJobsEnqueued: this.evidenceJobsEnqueued,
       evidenceJobsProcessed: this.evidenceJobsProcessed,
       evidenceJobsFailed: this.evidenceJobsFailed,
+      waybackJobsEnqueued: this.waybackJobsEnqueued,
+      waybackJobsProcessed: this.waybackJobsProcessed,
+      waybackJobsFailed: this.waybackJobsFailed,
       lastSchedulerRunAt: this.lastSchedulerRunAt,
     };
   }

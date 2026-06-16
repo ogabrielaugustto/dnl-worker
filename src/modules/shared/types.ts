@@ -19,6 +19,13 @@ export type DatabaseEvidenceCaptureStatus =
   | "captured"
   | "failed"
   | "skipped";
+export type DatabaseWaybackCaptureStatus =
+  | "queued"
+  | "processing"
+  | "submitted"
+  | "captured"
+  | "unavailable"
+  | "failed";
 
 export type MonitoringRuleRecord = {
   id: string;
@@ -123,4 +130,28 @@ export type DetectionEvidenceRecord = {
   source_url_snapshot: string | null;
   matched_image_url_snapshot: string | null;
   created_at: string;
+};
+
+export type DetectionWaybackCaptureRecord = {
+  id: string;
+  organization_id: string;
+  detection_id: string;
+  scan_run_id: string | null;
+  source_url: string;
+  canonical_source_url: string;
+  capture_status: DatabaseWaybackCaptureStatus;
+  save_job_id: string | null;
+  save_http_status: number | null;
+  save_requested_at: string;
+  save_completed_at: string | null;
+  availability_checked_at: string | null;
+  latest_snapshot_url: string | null;
+  latest_snapshot_timestamp: string | null;
+  latest_snapshot_at: string | null;
+  latest_snapshot_status: string | null;
+  error_message: string | null;
+  timeline: Array<Record<string, unknown>>;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
 };
