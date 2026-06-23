@@ -53,6 +53,17 @@ export type WaybackCaptureResult = {
   rawSaveStatus: WaybackSaveStatusResponse | null;
 };
 
+type WaybackSubmissionResult = {
+  saveHttpStatus: number;
+  saveJobId: string | null;
+  warningMessage: string | null;
+};
+
+type WaybackStatusPollResult = {
+  rawSaveStatus: WaybackSaveStatusResponse | null;
+  warningMessage: string | null;
+};
+
 function buildPlaybackUrl(timestamp: string, originalUrl: string): string {
   return `https://web.archive.org/web/${timestamp}/${originalUrl}`;
 }
@@ -103,10 +114,7 @@ async function fetchWithTimeout(
   }
 }
 
-async function submitSavePageNow(url: string): Promise<{
-  saveHttpStatus: number;
-  saveJobId: string | null;
-}> {
+async function submitSavePageNow(url: string): Promise<WaybackSubmissionResult> {
   const body = new URLSearchParams({
     url,
     capture_all: "on",
@@ -123,6 +131,14 @@ async function submitSavePageNow(url: string): Promise<{
   });
 
   if (!response.ok) {
+    if (response.status === 429) {
+      return {
+        saveHttpStatus: response.status,
+        saveJobId: null,
+        warningMessage: `Wayback Save Page Now request failed (${response.status})`,
+      };
+    }
+
     throw toExternalServiceError(
       `Wayback Save Page Now request failed (${response.status})`,
       "wayback_save_failed",
@@ -135,6 +151,7 @@ async function submitSavePageNow(url: string): Promise<{
   return {
     saveHttpStatus: response.status,
     saveJobId: extractSaveJobId(html),
+    warningMessage: null,
   };
 }
 
@@ -156,14 +173,32 @@ async function fetchSaveStatus(jobId: string): Promise<WaybackSaveStatusResponse
   return (await response.json()) as WaybackSaveStatusResponse;
 }
 
-async function pollSaveStatus(jobId: string): Promise<WaybackSaveStatusResponse | null> {
+async function pollSaveStatus(jobId: string): Promise<WaybackStatusPollResult> {
   let latestStatus: WaybackSaveStatusResponse | null = null;
 
   for (let attempt = 0; attempt < env.WAYBACK_STATUS_MAX_ATTEMPTS; attempt += 1) {
-    latestStatus = await fetchSaveStatus(jobId);
+    try {
+      latestStatus = await fetchSaveStatus(jobId);
+    } catch (error) {
+      if (
+        error instanceof ExternalServiceError &&
+        error.code === "wayback_status_failed" &&
+        (error.message.includes("(401)") || error.message.includes("(403)"))
+      ) {
+        return {
+          rawSaveStatus: null,
+          warningMessage: error.message,
+        };
+      }
+
+      throw error;
+    }
 
     if (latestStatus.status && latestStatus.status !== "pending") {
-      return latestStatus;
+      return {
+        rawSaveStatus: latestStatus,
+        warningMessage: null,
+      };
     }
 
     await new Promise((resolve) => {
@@ -171,7 +206,10 @@ async function pollSaveStatus(jobId: string): Promise<WaybackSaveStatusResponse 
     });
   }
 
-  return latestStatus;
+  return {
+    rawSaveStatus: latestStatus,
+    warningMessage: null,
+  };
 }
 
 async function fetchAvailability(url: string): Promise<WaybackAvailabilityResponse> {
@@ -240,8 +278,11 @@ async function fetchTimeline(url: string): Promise<WaybackTimelineEntry[]> {
 }
 
 export async function archiveUrlInWayback(url: string): Promise<WaybackCaptureResult> {
-  const { saveHttpStatus, saveJobId } = await submitSavePageNow(url);
-  const rawSaveStatus = saveJobId ? await pollSaveStatus(saveJobId) : null;
+  const { saveHttpStatus, saveJobId, warningMessage: submissionWarningMessage } =
+    await submitSavePageNow(url);
+  const { rawSaveStatus, warningMessage: statusWarningMessage } = saveJobId
+    ? await pollSaveStatus(saveJobId)
+    : { rawSaveStatus: null, warningMessage: null };
   const rawAvailability = await fetchAvailability(url);
   const timeline = await fetchTimeline(url);
 
@@ -255,13 +296,18 @@ export async function archiveUrlInWayback(url: string): Promise<WaybackCaptureRe
       : timeline[0]?.playbackUrl ?? null);
   const latestSnapshotStatus =
     rawSaveStatus?.status_ext ?? rawSaveStatus?.status ?? closestSnapshot?.status ?? timeline[0]?.statusCode ?? null;
+  const jobStatusDetail =
+    rawSaveStatus?.status_ext ??
+    rawSaveStatus?.exception ??
+    statusWarningMessage ??
+    submissionWarningMessage;
 
   return {
     requestUrl: url,
     saveHttpStatus,
     saveJobId,
     jobStatus: rawSaveStatus?.status ?? null,
-    jobStatusDetail: rawSaveStatus?.status_ext ?? rawSaveStatus?.exception ?? null,
+    jobStatusDetail,
     latestSnapshotUrl,
     latestSnapshotTimestamp,
     latestSnapshotAt: parseWaybackTimestamp(latestSnapshotTimestamp),
