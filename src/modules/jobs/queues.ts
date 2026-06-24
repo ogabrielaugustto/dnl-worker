@@ -3,12 +3,13 @@ import type pino from "pino";
 
 import { env } from "../../config/env.js";
 import type { WorkerMetrics } from "./metrics.js";
-import { buildEvidenceJobId, buildWaybackJobId } from "./job-keys.js";
+import { buildEvidenceJobId, buildSiteIntelJobId, buildWaybackJobId } from "./job-keys.js";
 import { getErrorMessage } from "../shared/errors.js";
 
 export const SCAN_JOBS_QUEUE_NAME = "scan-jobs";
 export const CAPTURE_EVIDENCE_QUEUE_NAME = "capture-evidence";
 export const WAYBACK_CAPTURE_QUEUE_NAME = "wayback-capture";
+export const SITE_INTEL_QUEUE_NAME = "site-intel";
 
 export type ScanQueuePayload = {
   scanJobId: string;
@@ -31,12 +32,17 @@ export type WaybackQueuePayload = {
   canonicalSourceUrl: string;
 };
 
+export type SiteIntelQueuePayload = {
+  detectionId: string;
+};
+
 type QueueManagerOptions = {
   logger: pino.Logger;
   metrics: WorkerMetrics;
   processScanJob: (payload: ScanQueuePayload) => Promise<void>;
   processEvidenceJob: (payload: EvidenceQueuePayload) => Promise<void>;
   processWaybackJob: (payload: WaybackQueuePayload) => Promise<void>;
+  processSiteIntelJob: (payload: SiteIntelQueuePayload) => Promise<void>;
 };
 
 const bullConnection = {
@@ -54,10 +60,14 @@ export class QueueManager {
   private readonly waybackQueue = new Queue<WaybackQueuePayload>(WAYBACK_CAPTURE_QUEUE_NAME, {
     connection: bullConnection,
   });
+  private readonly siteIntelQueue = new Queue<SiteIntelQueuePayload>(SITE_INTEL_QUEUE_NAME, {
+    connection: bullConnection,
+  });
 
   private readonly scanWorker: Worker<ScanQueuePayload>;
   private readonly evidenceWorker: Worker<EvidenceQueuePayload>;
   private readonly waybackWorker: Worker<WaybackQueuePayload>;
+  private readonly siteIntelWorker: Worker<SiteIntelQueuePayload>;
 
   constructor(private readonly options: QueueManagerOptions) {
     this.scanWorker = new Worker<ScanQueuePayload>(
@@ -103,6 +113,17 @@ export class QueueManager {
         },
       },
     );
+    this.siteIntelWorker = new Worker<SiteIntelQueuePayload>(
+      SITE_INTEL_QUEUE_NAME,
+      async (job) => {
+        await options.processSiteIntelJob(job.data);
+        options.metrics.recordSiteIntelJobProcessed();
+      },
+      {
+        connection: bullConnection,
+        concurrency: 1,
+      },
+    );
 
     this.scanWorker.on("failed", (_job, error) => {
       options.metrics.recordScanJobFailed();
@@ -134,6 +155,16 @@ export class QueueManager {
           error: getErrorMessage(error),
         },
         "Wayback worker failed",
+      );
+    });
+    this.siteIntelWorker.on("failed", (_job, error) => {
+      options.metrics.recordSiteIntelJobFailed();
+      options.logger.error(
+        {
+          event: "site_intel_worker_failed",
+          error: getErrorMessage(error),
+        },
+        "Site intel worker failed",
       );
     });
 
@@ -185,17 +216,34 @@ export class QueueManager {
     this.options.metrics.recordWaybackJobEnqueued();
   }
 
+  async enqueueSiteIntelJob(payload: SiteIntelQueuePayload): Promise<void> {
+    await this.siteIntelQueue.add("collect-site-intel", payload, {
+      jobId: buildSiteIntelJobId(payload.detectionId),
+      attempts: 3,
+      backoff: {
+        type: "exponential",
+        delay: 10_000,
+      },
+      removeOnComplete: 500,
+      removeOnFail: 500,
+    });
+
+    this.options.metrics.recordSiteIntelJobEnqueued();
+  }
+
   async getQueueStats(): Promise<Record<string, unknown>> {
-    const [scanCounts, evidenceCounts, waybackCounts] = await Promise.all([
+    const [scanCounts, evidenceCounts, waybackCounts, siteIntelCounts] = await Promise.all([
       this.scanQueue.getJobCounts("active", "completed", "delayed", "failed", "waiting"),
       this.evidenceQueue.getJobCounts("active", "completed", "delayed", "failed", "waiting"),
       this.waybackQueue.getJobCounts("active", "completed", "delayed", "failed", "waiting"),
+      this.siteIntelQueue.getJobCounts("active", "completed", "delayed", "failed", "waiting"),
     ]);
 
     return {
       [SCAN_JOBS_QUEUE_NAME]: scanCounts,
       [CAPTURE_EVIDENCE_QUEUE_NAME]: evidenceCounts,
       [WAYBACK_CAPTURE_QUEUE_NAME]: waybackCounts,
+      [SITE_INTEL_QUEUE_NAME]: siteIntelCounts,
     };
   }
 
@@ -204,9 +252,11 @@ export class QueueManager {
       this.scanWorker.close(),
       this.evidenceWorker.close(),
       this.waybackWorker.close(),
+      this.siteIntelWorker.close(),
       this.scanQueue.close(),
       this.evidenceQueue.close(),
       this.waybackQueue.close(),
+      this.siteIntelQueue.close(),
     ]);
   }
 }

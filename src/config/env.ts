@@ -31,6 +31,8 @@ const envSchema = z.object({
   WAYBACK_STATUS_POLL_INTERVAL_MS: z.coerce.number().int().positive().default(3_000),
   WAYBACK_STATUS_MAX_ATTEMPTS: z.coerce.number().int().positive().default(6),
   WAYBACK_TIMELINE_LIMIT: z.coerce.number().int().positive().max(25).default(10),
+  SITE_INTEL_MAX_PAGES: z.coerce.number().int().positive().max(25).default(10),
+  SITE_INTEL_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(8_000),
   GOOGLE_CLOUD_PROJECT_ID: z.string().optional(),
   GOOGLE_APPLICATION_CREDENTIALS: z.string().optional(),
 });

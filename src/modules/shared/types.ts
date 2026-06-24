@@ -26,6 +26,12 @@ export type DatabaseWaybackCaptureStatus =
   | "captured"
   | "unavailable"
   | "failed";
+export type DatabaseSiteIntelInvestigationStatus =
+  | "queued"
+  | "processing"
+  | "completed"
+  | "failed"
+  | "skipped";
 
 export type MonitoringRuleRecord = {
   id: string;
@@ -151,6 +157,30 @@ export type DetectionWaybackCaptureRecord = {
   latest_snapshot_status: string | null;
   error_message: string | null;
   timeline: Array<Record<string, unknown>>;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+};
+
+export type DetectionSiteIntelInvestigationRecord = {
+  id: string;
+  organization_id: string;
+  detection_id: string;
+  status: DatabaseSiteIntelInvestigationStatus;
+  requested_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+  source_url: string;
+  final_url: string | null;
+  domain: string | null;
+  rdap_payload: Record<string, unknown>;
+  page_findings: Array<Record<string, unknown>>;
+  contact_candidates: Array<Record<string, unknown>>;
+  primary_email: string | null;
+  primary_phone: string | null;
+  primary_cnpj: string | null;
+  primary_contact_page_url: string | null;
+  error_message: string | null;
   metadata: Record<string, unknown>;
   created_at: string;
   updated_at: string;

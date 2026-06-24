@@ -10,6 +10,8 @@ import { processWaybackCapture } from "../wayback/wayback-processor.service.js";
 import { QueueManager } from "./queues.js";
 import { WorkerMetrics } from "./metrics.js";
 import { getScanJobById } from "../scans/scan-jobs.repository.js";
+import { ensureQueuedSiteIntelInvestigation } from "../site-intel/site-intel.repository.js";
+import { processSiteIntelInvestigation } from "../site-intel/site-intel-processor.service.js";
 
 export class WorkerRuntime {
   private readonly supabase = getSupabaseAdminClient();
@@ -36,6 +38,9 @@ export class WorkerRuntime {
       },
       processWaybackJob: async (payload) => {
         await processWaybackCapture(this.supabase, this.logger, payload);
+      },
+      processSiteIntelJob: async (payload) => {
+        await processSiteIntelInvestigation(this.supabase, this.logger, payload);
       },
     });
   }
@@ -88,6 +93,22 @@ export class WorkerRuntime {
         priority: scanJob.priority,
       },
     );
+  }
+
+  async enqueueSiteIntelInvestigation(
+    detectionId: string,
+    force: boolean,
+  ): Promise<{ status: "queued" }> {
+    await ensureQueuedSiteIntelInvestigation(this.supabase, {
+      detectionId,
+      force,
+    });
+
+    await this.queueManager.enqueueSiteIntelJob({ detectionId });
+
+    return {
+      status: "queued",
+    };
   }
 
   async getHealth(): Promise<Record<string, unknown>> {

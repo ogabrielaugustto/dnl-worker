@@ -22,8 +22,9 @@ Operational worker service for DNL (Direito Na Lente). This repository owns the 
 - Upserts deduplicated `detections`
 - Captures page screenshots for new or missing evidence
 - Preserves the matched image itself alongside the page screenshot
-- Stores a lightweight site snapshot with domain, page metadata, and owner hints
+- Stores a lightweight site snapshot with domain and page metadata during evidence capture
 - Submits newly found source pages to the Internet Archive Wayback Machine once per detection
+- Runs a separate public site-intel investigation only after a detection is marked as `unauthorized`
 - Stores the latest confirmed Wayback snapshot plus a small local timeline summary
 - Uploads evidence artifacts to a private R2 bucket
 - Tracks execution state in `scan_jobs`, `scan_runs`, and `detection_evidences`
@@ -51,6 +52,8 @@ VISION_WEB_DETECTION_MAX_RESULTS=50
 VISION_MIN_CONFIDENCE_SCORE=0.75
 WAYBACK_ENABLED=true
 WAYBACK_SUBMISSION_INTERVAL_MS=15000
+SITE_INTEL_MAX_PAGES=10
+SITE_INTEL_REQUEST_TIMEOUT_MS=8000
 ```
 
 Google Vision requires a service account file:
@@ -74,6 +77,7 @@ The HTTP service starts on `http://localhost:3333` and the same process also sta
 - the BullMQ `scan-jobs` worker
 - the BullMQ `capture-evidence` worker
 - the BullMQ `wayback-capture` worker
+- the BullMQ `site-intel` worker
 
 ## Scripts
 
@@ -106,6 +110,7 @@ The operational runtime migration adds:
 - `detection_evidences.matched_image_storage_key`
 - `detection_evidences.matched_image_url_snapshot`
 - `detection_wayback_captures` for one-time Wayback save requests plus timeline metadata
+- `detection_site_intel_investigations` for post-`unauthorized` public contact and domain enrichment
 - `worker_schedule_due_scan_jobs()` for atomic recurring scheduling
 
 The directed crawl cleanup migration removes the old portal crawler tables:
@@ -134,6 +139,7 @@ Protected with `x-internal-secret`:
 - `POST /internal/vision/test`
 - `POST /internal/screenshots/test`
 - `POST /internal/wayback/test`
+- `POST /internal/site-intel/:id/run`
 
 ## Examples
 
@@ -190,6 +196,14 @@ curl -X POST http://localhost:3333/internal/wayback/test \
   -H "x-internal-secret: change-me" \
   -d "{\"url\":\"https://example.com\"}"
 ```
+
+Run post-`unauthorized` public site-intel investigation:
+
+```bash
+curl -X POST http://localhost:3333/internal/site-intel/00000000-0000-4000-8000-000000000000/run \
+  -H "content-type: application/json" \
+  -H "x-internal-secret: change-me" \
+  -d "{\"force\":true}"
 ```
 
 ## Notes
@@ -199,3 +213,4 @@ curl -X POST http://localhost:3333/internal/wayback/test \
 - Web image discovery is intentionally limited to Google Vision. Do not add portal/source crawling back into this worker.
 - Screenshots and preserved matched images are stored privately in R2; consumer-facing signed URLs should be handled later by the platform or a dedicated internal endpoint.
 - Wayback integration uses the public Save Page Now flow plus Availability/CDX follow-up checks. It is best-effort and throttled to one queued submission per interval.
+- Site-intel investigation is intentionally bounded to free public signals on the detected domain and should not become a general crawler.

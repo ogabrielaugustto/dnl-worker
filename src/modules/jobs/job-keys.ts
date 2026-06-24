@@ -14,3 +14,7 @@ export function buildEvidenceJobId(detectionId: string, scanRunId: string): stri
 export function buildWaybackJobId(detectionId: string): string {
   return `wayback-${detectionId}`;
 }
+
+export function buildSiteIntelJobId(detectionId: string): string {
+  return `site-intel-${detectionId}`;
+}
