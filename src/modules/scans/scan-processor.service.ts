@@ -24,6 +24,7 @@ import {
 import { AppError, getErrorMessage, isRetryableError } from "../shared/errors.js";
 import { env } from "../../config/env.js";
 import { ensureQueuedWaybackCapture } from "../wayback/wayback.repository.js";
+import { sendCompletedScanSummaryEmail } from "./scan-summary-email.service.js";
 
 export async function processScanJob(
   supabase: SupabaseClient,
@@ -138,6 +139,11 @@ export async function processScanJob(
       },
     );
     await completeScanJob(supabase, claimedJob.id, scanRun.id);
+    if (evidenceJobsQueued === 0) {
+      await sendCompletedScanSummaryEmail(supabase, logger, {
+        scanJobId: claimedJob.id,
+      });
+    }
 
     logger.info(
       {

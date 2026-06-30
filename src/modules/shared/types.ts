@@ -67,6 +67,7 @@ export type ScanJobRecord = {
   locked_at: string | null;
   locked_by: string | null;
   completed_run_id: string | null;
+  summary_email_sent_at: string | null;
 };
 
 export type ScanRunRecord = {

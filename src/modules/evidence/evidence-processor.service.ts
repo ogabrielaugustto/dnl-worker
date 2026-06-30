@@ -12,6 +12,7 @@ import {
 import { uploadEvidenceFile, uploadEvidenceScreenshot } from "../storage/r2-storage.service.js";
 import { getErrorMessage } from "../shared/errors.js";
 import { finalizeEvidencePendingScanRun } from "../scans/scan-jobs.repository.js";
+import { sendCompletedScanSummaryEmail } from "../scans/scan-summary-email.service.js";
 
 type EvidenceArtifact<T> =
   | {
@@ -172,7 +173,13 @@ export async function processEvidenceCapture(
     const hasOpenEvidence = await hasOpenEvidenceForScanRun(supabase, payload.scanRunId);
 
     if (!hasOpenEvidence) {
-      await finalizeEvidencePendingScanRun(supabase, payload.scanRunId);
+      const finalized = await finalizeEvidencePendingScanRun(supabase, payload.scanRunId);
+
+      if (finalized?.completed) {
+        await sendCompletedScanSummaryEmail(supabase, logger, {
+          scanRunId: finalized.scanRunId,
+        });
+      }
     }
   }
 }

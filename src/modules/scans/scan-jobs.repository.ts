@@ -37,7 +37,7 @@ export async function listPendingScanJobs(supabase: SupabaseClient): Promise<Sca
   const { data, error } = await supabase
     .from("scan_jobs")
     .select(
-      "id, organization_id, asset_id, monitoring_rule_id, requested_by_user_id, type, status, priority, scheduled_at, started_at, finished_at, attempts, max_attempts, error_code, error_message, dedupe_key, queue_name, available_at, locked_at, locked_by, completed_run_id",
+      "id, organization_id, asset_id, monitoring_rule_id, requested_by_user_id, type, status, priority, scheduled_at, started_at, finished_at, attempts, max_attempts, error_code, error_message, dedupe_key, queue_name, available_at, locked_at, locked_by, completed_run_id, summary_email_sent_at",
     )
     .eq("status", "pending")
     .lte("available_at", new Date().toISOString())
@@ -61,7 +61,7 @@ export async function getScanJobById(
   const { data, error } = await supabase
     .from("scan_jobs")
     .select(
-      "id, organization_id, asset_id, monitoring_rule_id, requested_by_user_id, type, status, priority, scheduled_at, started_at, finished_at, attempts, max_attempts, error_code, error_message, dedupe_key, queue_name, available_at, locked_at, locked_by, completed_run_id",
+      "id, organization_id, asset_id, monitoring_rule_id, requested_by_user_id, type, status, priority, scheduled_at, started_at, finished_at, attempts, max_attempts, error_code, error_message, dedupe_key, queue_name, available_at, locked_at, locked_by, completed_run_id, summary_email_sent_at",
     )
     .eq("id", scanJobId)
     .maybeSingle();
@@ -108,7 +108,7 @@ export async function claimScanJob(
     .eq("id", scanJobId)
     .eq("status", "pending")
     .select(
-      "id, organization_id, asset_id, monitoring_rule_id, requested_by_user_id, type, status, priority, scheduled_at, started_at, finished_at, attempts, max_attempts, error_code, error_message, dedupe_key, queue_name, available_at, locked_at, locked_by, completed_run_id",
+      "id, organization_id, asset_id, monitoring_rule_id, requested_by_user_id, type, status, priority, scheduled_at, started_at, finished_at, attempts, max_attempts, error_code, error_message, dedupe_key, queue_name, available_at, locked_at, locked_by, completed_run_id, summary_email_sent_at",
     )
     .maybeSingle();
 
@@ -219,7 +219,7 @@ export async function completeScanRun(
 export async function finalizeEvidencePendingScanRun(
   supabase: SupabaseClient,
   scanRunId: string,
-): Promise<void> {
+): Promise<{ completed: boolean; scanRunId: string } | null> {
   const { data: scanRun, error: scanRunError } = await supabase
     .from("scan_runs")
     .select("id, started_at, status")
@@ -234,7 +234,7 @@ export async function finalizeEvidencePendingScanRun(
   }
 
   if (!scanRun || scanRun.status !== "evidence_pending") {
-    return;
+    return null;
   }
 
   const finishedAt = new Date();
@@ -258,6 +258,11 @@ export async function finalizeEvidencePendingScanRun(
       retryable: true,
     });
   }
+
+  return {
+    completed: true,
+    scanRunId,
+  };
 }
 
 export async function failScanRun(

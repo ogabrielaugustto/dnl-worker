@@ -11,6 +11,9 @@ process.env.R2_ACCESS_KEY_ID = "test-access-key";
 process.env.R2_SECRET_ACCESS_KEY = "test-secret-key";
 process.env.R2_BUCKET_ASSETS = "test-assets";
 process.env.R2_BUCKET_EVIDENCE = "test-evidence";
+process.env.PLATFORM_URL = "https://app.example.com";
+process.env.RESEND_API_KEY = "re_test_key";
+process.env.RESEND_FROM_EMAIL = "noreply@example.com";
 
 const { buildServer } = await import("../src/http/server.ts");
 const { ConflictError } = await import("../src/modules/shared/errors.ts");
