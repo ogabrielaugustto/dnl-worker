@@ -24,7 +24,7 @@ export async function upsertDetection(
   const { data: existingDetection, error: existingError } = await supabase
     .from("detections")
     .select(
-      "id, organization_id, asset_id, scan_job_id, source_url, canonical_source_url, matched_image_url, canonical_matched_image_url, page_title, domain, confidence_score, vision_payload, status, first_seen_at, last_seen_at, last_scanned_at, archived_at",
+      "id, organization_id, asset_id, scan_job_id, source_url, canonical_source_url, matched_image_url, canonical_matched_image_url, page_title, domain, confidence_score, source_scope, source_scope_confidence, vision_payload, status, first_seen_at, last_seen_at, last_scanned_at, archived_at",
     )
     .eq("organization_id", organizationId)
     .eq("asset_id", assetId)
@@ -53,13 +53,15 @@ export async function upsertDetection(
         page_title: candidate.pageTitle,
         domain: candidate.domain,
         confidence_score: candidate.confidenceScore,
+        source_scope: candidate.sourceScope,
+        source_scope_confidence: candidate.sourceScopeConfidence,
         vision_payload: candidate.visionPayload,
         first_seen_at: now,
         last_seen_at: now,
         last_scanned_at: now,
       })
       .select(
-        "id, organization_id, asset_id, scan_job_id, source_url, canonical_source_url, matched_image_url, canonical_matched_image_url, page_title, domain, confidence_score, vision_payload, status, first_seen_at, last_seen_at, last_scanned_at, archived_at",
+        "id, organization_id, asset_id, scan_job_id, source_url, canonical_source_url, matched_image_url, canonical_matched_image_url, page_title, domain, confidence_score, source_scope, source_scope_confidence, vision_payload, status, first_seen_at, last_seen_at, last_scanned_at, archived_at",
       )
       .single();
 
@@ -85,13 +87,15 @@ export async function upsertDetection(
       page_title: candidate.pageTitle,
       domain: candidate.domain,
       confidence_score: candidate.confidenceScore,
+      source_scope: candidate.sourceScope,
+      source_scope_confidence: candidate.sourceScopeConfidence,
       vision_payload: candidate.visionPayload,
       last_seen_at: now,
       last_scanned_at: now,
     })
     .eq("id", existingDetection.id)
     .select(
-      "id, organization_id, asset_id, scan_job_id, source_url, canonical_source_url, matched_image_url, canonical_matched_image_url, page_title, domain, confidence_score, vision_payload, status, first_seen_at, last_seen_at, last_scanned_at, archived_at",
+      "id, organization_id, asset_id, scan_job_id, source_url, canonical_source_url, matched_image_url, canonical_matched_image_url, page_title, domain, confidence_score, source_scope, source_scope_confidence, vision_payload, status, first_seen_at, last_seen_at, last_scanned_at, archived_at",
     )
     .single();
 

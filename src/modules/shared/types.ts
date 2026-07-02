@@ -114,6 +114,8 @@ export type DetectionRecord = {
   page_title: string | null;
   domain: string | null;
   confidence_score: number | null;
+  source_scope: "national" | "international";
+  source_scope_confidence: number | null;
   vision_payload: Record<string, unknown>;
   status: string;
   first_seen_at: string;

@@ -49,7 +49,9 @@ R2_BUCKET_ASSETS=
 R2_BUCKET_EVIDENCE=
 INTERNAL_API_SECRET=
 VISION_WEB_DETECTION_MAX_RESULTS=50
-VISION_MIN_CONFIDENCE_SCORE=0.75
+VISION_MIN_CONFIDENCE_SCORE=0.90
+VISION_PARTIAL_MATCH_MIN_CONFIDENCE_SCORE=0.95
+VISION_PAGE_MATCH_MIN_CONFIDENCE_SCORE=0.97
 WAYBACK_ENABLED=true
 WAYBACK_SUBMISSION_INTERVAL_MS=15000
 SITE_INTEL_MAX_PAGES=10
@@ -111,6 +113,7 @@ The operational runtime migration adds:
 - `detection_evidences.matched_image_url_snapshot`
 - `detection_wayback_captures` for one-time Wayback save requests plus timeline metadata
 - `detection_site_intel_investigations` for post-`unauthorized` public contact and domain enrichment
+- `detections.source_scope` and `detections.source_scope_confidence` for national vs international filtering
 - `worker_schedule_due_scan_jobs()` for atomic recurring scheduling
 
 The directed crawl cleanup migration removes the old portal crawler tables:
@@ -122,7 +125,7 @@ The directed crawl cleanup migration removes the old portal crawler tables:
 - `discovered_images`
 - `asset_files.phash`
 
-Image search is performed only through Google Vision Web Detection. `VISION_WEB_DETECTION_MAX_RESULTS` asks Vision for more WEB_DETECTION results, and `VISION_MIN_CONFIDENCE_SCORE` controls how permissive candidate normalization is before human validation. Google Vision does not expose an official age/date-range parameter, so the worker cannot force a "last 20 years" search window.
+Image search is performed only through Google Vision Web Detection. `VISION_WEB_DETECTION_MAX_RESULTS` asks Vision for more WEB_DETECTION results, while `VISION_MIN_CONFIDENCE_SCORE`, `VISION_PARTIAL_MATCH_MIN_CONFIDENCE_SCORE`, and `VISION_PAGE_MATCH_MIN_CONFIDENCE_SCORE` tighten acceptance for weaker matches. The worker now persists every accepted hit as `national` or `international`, prioritizing Brazilian and PT-BR signals such as `.br`, `gov.br`, and `lang=pt-BR`, without hiding international results. Google Vision does not expose an official age/date-range parameter, so the worker cannot force a "last 20 years" search window.
 
 ## Internal endpoints
 
