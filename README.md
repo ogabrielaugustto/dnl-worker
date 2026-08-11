@@ -112,7 +112,7 @@ The operational runtime migration adds:
 - `detection_evidences.matched_image_storage_key`
 - `detection_evidences.matched_image_url_snapshot`
 - `detection_wayback_captures` for one-time Wayback save requests plus timeline metadata
-- `detection_site_intel_investigations` for post-`unauthorized` public contact and domain enrichment
+- `detection_site_intel_investigations` for post-`unauthorized` public contact, RDAP domain-owner contact, and domain enrichment
 - `detections.source_scope` and `detections.source_scope_confidence` for national vs international filtering
 - `worker_schedule_due_scan_jobs()` for atomic recurring scheduling
 
@@ -216,4 +216,4 @@ curl -X POST http://localhost:3333/internal/site-intel/00000000-0000-4000-8000-0
 - Web image discovery is intentionally limited to Google Vision. Do not add portal/source crawling back into this worker.
 - Screenshots and preserved matched images are stored privately in R2; consumer-facing signed URLs should be handled later by the platform or a dedicated internal endpoint.
 - Wayback integration uses the public Save Page Now flow plus Availability/CDX follow-up checks. It is best-effort and throttled to one queued submission per interval.
-- Site-intel investigation is intentionally bounded to free public signals on the detected domain and should not become a general crawler.
+- Site-intel investigation is intentionally bounded to free public signals on the detected domain and should not become a general crawler. RDAP data is preferred for domain-owner contact; public on-site emails are only a fallback when RDAP does not expose a contact email.

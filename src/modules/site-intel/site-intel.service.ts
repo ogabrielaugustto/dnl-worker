@@ -60,18 +60,45 @@ export type SiteIntelPageFinding = {
 
 export type SiteIntelRdapEntity = {
   handle: string | null;
+  parentHandle: string | null;
   roles: string[];
   name: string | null;
   organization: string | null;
   email: string | null;
+  publicIds: Array<{
+    type: string | null;
+    identifier: string | null;
+  }>;
+};
+
+export type SiteIntelDomainOwnerContactStatus = "found" | "fallback" | "missing";
+export type SiteIntelDomainOwnerSourceType = "rdap" | "public_site" | "none";
+
+export type SiteIntelDomainOwnerContact = {
+  registeredDomain: string | null;
+  name: string | null;
+  organization: string | null;
+  document: string | null;
+  email: string | null;
+  sourceType: SiteIntelDomainOwnerSourceType;
+  sourceUrl: string | null;
+  contactStatus: SiteIntelDomainOwnerContactStatus;
+  roles: string[];
+};
+
+export type SiteIntelDomainOwnerCandidate = SiteIntelDomainOwnerContact & {
+  handle: string | null;
 };
 
 export type SiteIntelInvestigationResult = {
   domain: string | null;
+  registeredDomain: string | null;
   sourceUrl: string;
   finalUrl: string;
   rdapPayload: Record<string, unknown> | null;
   rdapEntities: SiteIntelRdapEntity[];
+  domainOwner: SiteIntelDomainOwnerContact;
+  domainOwnerCandidates: SiteIntelDomainOwnerCandidate[];
   pageFindings: SiteIntelPageFinding[];
   contactCandidates: SiteIntelContactCandidate[];
   primaryEmail: string | null;
@@ -255,53 +282,242 @@ async function fetchRdapPayload(domain: string, requestTimeoutMs: number): Promi
   }
 }
 
+function readVcardEntries(item: Record<string, unknown>): unknown[] {
+  const vcardArray = Array.isArray(item.vcardArray) ? item.vcardArray : [];
+  return Array.isArray(vcardArray[1]) ? vcardArray[1] : [];
+}
+
+function readVcardString(item: Record<string, unknown>, keyName: string): string | null {
+  for (const entry of readVcardEntries(item)) {
+    if (!Array.isArray(entry) || entry.length < 4) {
+      continue;
+    }
+
+    const [key, , , value] = entry;
+    if (key === keyName && typeof value === "string") {
+      return value;
+    }
+  }
+
+  return null;
+}
+
+function readVcardOrganization(item: Record<string, unknown>): string | null {
+  for (const entry of readVcardEntries(item)) {
+    if (!Array.isArray(entry) || entry.length < 4) {
+      continue;
+    }
+
+    const [key, , , value] = entry;
+    if (key !== "org") {
+      continue;
+    }
+
+    if (Array.isArray(value) && typeof value[0] === "string") {
+      return value[0];
+    }
+
+    if (typeof value === "string") {
+      return value;
+    }
+  }
+
+  return null;
+}
+
+function readPublicIds(item: Record<string, unknown>): SiteIntelRdapEntity["publicIds"] {
+  if (!Array.isArray(item.publicIds)) {
+    return [];
+  }
+
+  return item.publicIds
+    .filter((publicId): publicId is Record<string, unknown> => Boolean(publicId && typeof publicId === "object"))
+    .map((publicId) => ({
+      type: typeof publicId.type === "string" ? publicId.type : null,
+      identifier: typeof publicId.identifier === "string" ? publicId.identifier : null,
+    }))
+    .filter((publicId) => publicId.type || publicId.identifier);
+}
+
 function extractRdapEntities(payload: Record<string, unknown> | null): SiteIntelRdapEntity[] {
   if (!payload || !Array.isArray(payload.entities)) {
     return [];
   }
 
-  return payload.entities.map((entity) => {
-    const item = entity as Record<string, unknown>;
-    const vcardArray = Array.isArray(item.vcardArray) ? item.vcardArray : [];
-    const vcardEntries = Array.isArray(vcardArray[1]) ? vcardArray[1] : [];
-    let name: string | null = null;
-    let organization: string | null = null;
-    let email: string | null = null;
+  const entities: SiteIntelRdapEntity[] = [];
 
-    for (const entry of vcardEntries) {
-      if (!Array.isArray(entry) || entry.length < 4) {
-        continue;
-      }
-
-      const [key, , , value] = entry;
-
-      if (key === "fn" && typeof value === "string") {
-        name = value;
-      }
-
-      if (key === "org") {
-        if (Array.isArray(value) && typeof value[0] === "string") {
-          organization = value[0];
-        } else if (typeof value === "string") {
-          organization = value;
-        }
-      }
-
-      if (key === "email" && typeof value === "string") {
-        email = value;
-      }
+  const visitEntity = (entity: unknown, parentHandle: string | null) => {
+    if (!entity || typeof entity !== "object") {
+      return;
     }
 
-    return {
-      handle: typeof item.handle === "string" ? item.handle : null,
+    const item = entity as Record<string, unknown>;
+    const handle = typeof item.handle === "string" ? item.handle : null;
+
+    entities.push({
+      handle,
+      parentHandle,
       roles: Array.isArray(item.roles)
         ? item.roles.filter((role): role is string => typeof role === "string")
         : [],
-      name,
-      organization,
-      email,
-    };
-  });
+      name: readVcardString(item, "fn"),
+      organization: readVcardOrganization(item),
+      email: readVcardString(item, "email"),
+      publicIds: readPublicIds(item),
+    });
+
+    if (Array.isArray(item.entities)) {
+      for (const child of item.entities) {
+        visitEntity(child, handle);
+      }
+    }
+  };
+
+  for (const entity of payload.entities) {
+    visitEntity(entity, null);
+  }
+
+  return entities;
+}
+
+function readRdapRegisteredDomain(payload: Record<string, unknown> | null): string | null {
+  if (!payload) {
+    return null;
+  }
+
+  if (typeof payload.ldhName === "string" && payload.ldhName.trim()) {
+    return payload.ldhName.trim().toLowerCase();
+  }
+
+  if (typeof payload.handle === "string" && payload.handle.trim().includes(".")) {
+    return payload.handle.trim().toLowerCase();
+  }
+
+  return null;
+}
+
+function readRdapSelfUrl(payload: Record<string, unknown> | null, fallbackDomain: string | null): string | null {
+  if (payload && Array.isArray(payload.links)) {
+    for (const link of payload.links) {
+      if (!link || typeof link !== "object") {
+        continue;
+      }
+
+      const item = link as Record<string, unknown>;
+      const rel = typeof item.rel === "string" ? item.rel : null;
+      const href = typeof item.href === "string" ? item.href : null;
+
+      if (href && rel === "self") {
+        return href;
+      }
+    }
+  }
+
+  return fallbackDomain ? `https://rdap.org/domain/${encodeURIComponent(fallbackDomain)}` : null;
+}
+
+function roleWeight(roles: string[]): number {
+  const normalizedRoles = roles.map((role) => role.toLowerCase());
+
+  if (normalizedRoles.includes("registrant")) {
+    return 1_000;
+  }
+
+  if (normalizedRoles.includes("administrative")) {
+    return 800;
+  }
+
+  if (normalizedRoles.includes("technical")) {
+    return 600;
+  }
+
+  if (normalizedRoles.includes("abuse")) {
+    return 500;
+  }
+
+  if (normalizedRoles.includes("billing")) {
+    return 400;
+  }
+
+  return 100;
+}
+
+function selectRegistrantEntity(entities: SiteIntelRdapEntity[]): SiteIntelRdapEntity | null {
+  return (
+    [...entities].sort((left, right) => roleWeight(right.roles) - roleWeight(left.roles))[0] ?? null
+  );
+}
+
+function selectRdapEmailEntity(entities: SiteIntelRdapEntity[]): SiteIntelRdapEntity | null {
+  const withEmail = entities.filter((entity) => entity.email);
+  return (
+    [...withEmail].sort((left, right) => roleWeight(right.roles) - roleWeight(left.roles))[0] ?? null
+  );
+}
+
+function readPreferredPublicId(entity: SiteIntelRdapEntity | null): string | null {
+  if (!entity) {
+    return null;
+  }
+
+  return (
+    entity.publicIds.find((publicId) => publicId.type?.toLowerCase() === "cnpj")?.identifier ??
+    entity.publicIds.find((publicId) => publicId.identifier)?.identifier ??
+    null
+  );
+}
+
+function buildDomainOwnerCandidates(
+  params: {
+    rdapEntities: SiteIntelRdapEntity[];
+    registeredDomain: string | null;
+    rdapSourceUrl: string | null;
+  },
+): SiteIntelDomainOwnerCandidate[] {
+  return params.rdapEntities
+    .filter(
+      (entity) =>
+        entity.name ||
+        entity.organization ||
+        entity.email ||
+        entity.publicIds.some((publicId) => publicId.identifier),
+    )
+    .map((entity) => ({
+      handle: entity.handle,
+      registeredDomain: params.registeredDomain,
+      name: entity.name,
+      organization: entity.organization,
+      document: readPreferredPublicId(entity),
+      email: entity.email,
+      sourceType: "rdap",
+      sourceUrl: params.rdapSourceUrl,
+      contactStatus: entity.email ? "found" : "missing",
+      roles: entity.roles,
+    }));
+}
+
+function buildDomainOwnerContact(params: {
+  registeredDomain: string | null;
+  rdapEntities: SiteIntelRdapEntity[];
+  rdapSourceUrl: string | null;
+  fallbackEmailCandidate: SiteIntelContactCandidate | null;
+}): SiteIntelDomainOwnerContact {
+  const registrant = selectRegistrantEntity(params.rdapEntities);
+  const emailEntity = selectRdapEmailEntity(params.rdapEntities);
+  const sourceEntity = emailEntity ?? registrant;
+  const fallbackEmail = params.fallbackEmailCandidate?.value ?? null;
+
+  return {
+    registeredDomain: params.registeredDomain,
+    name: registrant?.name ?? sourceEntity?.name ?? null,
+    organization: registrant?.organization ?? sourceEntity?.organization ?? null,
+    document: readPreferredPublicId(registrant) ?? readPreferredPublicId(sourceEntity),
+    email: emailEntity?.email ?? fallbackEmail,
+    sourceType: emailEntity?.email ? "rdap" : fallbackEmail ? "public_site" : "none",
+    sourceUrl: emailEntity?.email ? params.rdapSourceUrl : params.fallbackEmailCandidate?.sourceUrl ?? null,
+    contactStatus: emailEntity?.email ? "found" : fallbackEmail ? "fallback" : "missing",
+    roles: sourceEntity?.roles ?? [],
+  };
 }
 
 function pageCategoryWeight(category: SiteIntelPageCategory): number {
@@ -436,6 +652,8 @@ export async function collectPublicSiteIntel(params: {
   const domain = readDomain(sourceFinalUrl);
   const rdapPayload = domain ? await fetchRdapPayload(domain, requestTimeoutMs) : null;
   const rdapEntities = extractRdapEntities(rdapPayload);
+  const registeredDomain = readRdapRegisteredDomain(rdapPayload) ?? domain;
+  const rdapSourceUrl = readRdapSelfUrl(rdapPayload, registeredDomain);
 
   const pagesToVisit: string[] = [params.sourceUrl];
   const visited = new Set<string>();
@@ -481,12 +699,24 @@ export async function collectPublicSiteIntel(params: {
       .map((entity) => ({
         type: "rdap_email" as const,
         value: entity.email as string,
-        sourceUrl: sourceFinalUrl,
+        sourceUrl: rdapSourceUrl ?? sourceFinalUrl,
         sourceType: "rdap" as const,
         pageCategory: null,
       })),
   ]);
 
+  const fallbackEmailCandidate = selectPrimaryCandidate(contactCandidates, "email");
+  const domainOwner = buildDomainOwnerContact({
+    registeredDomain,
+    rdapEntities,
+    rdapSourceUrl,
+    fallbackEmailCandidate,
+  });
+  const domainOwnerCandidates = buildDomainOwnerCandidates({
+    rdapEntities,
+    registeredDomain,
+    rdapSourceUrl,
+  });
   const primaryEmail =
     [...contactCandidates]
       .filter((candidate) => candidate.type === "email" || candidate.type === "rdap_email")
@@ -503,10 +733,13 @@ export async function collectPublicSiteIntel(params: {
 
   return {
     domain,
+    registeredDomain,
     sourceUrl: params.sourceUrl,
     finalUrl: sourceFinalUrl,
     rdapPayload,
     rdapEntities,
+    domainOwner,
+    domainOwnerCandidates,
     pageFindings,
     contactCandidates,
     primaryEmail,

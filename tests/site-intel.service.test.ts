@@ -227,3 +227,96 @@ test("falls back to RDAP email when the site exposes no public contact email", a
   assert.equal(result.primaryEmail, "owner@rdap-only.example");
   assert.equal(result.primaryContactPageUrl, null);
 });
+
+test("extracts domain owner contact from nested RDAP entities", async () => {
+  globalThis.fetch = async (input) => {
+    const url = String(input);
+
+    if (url === "https://www1.folha.uol.com.br/post") {
+      return htmlResponse(
+        `
+          <html>
+            <head><title>Folha post</title></head>
+            <body>
+              <a href="/falecomafolha/">Fale com a Folha</a>
+            </body>
+          </html>
+        `,
+        url,
+      );
+    }
+
+    if (url === "https://www1.folha.uol.com.br/falecomafolha/") {
+      return htmlResponse(
+        "<html><body>leitor@grupofolha.com.br 0800 015 9000</body></html>",
+        url,
+      );
+    }
+
+    if (url === "https://rdap.org/domain/www1.folha.uol.com.br") {
+      return jsonResponse({
+        ldhName: "uol.com.br",
+        links: [
+          {
+            rel: "self",
+            href: "https://rdap.registro.br/domain/uol.com.br",
+          },
+        ],
+        entities: [
+          {
+            handle: "01109184000438",
+            roles: ["registrant"],
+            publicIds: [
+              {
+                type: "cnpj",
+                identifier: "01.109.184/0004-38",
+              },
+            ],
+            vcardArray: [
+              "vcard",
+              [
+                ["fn", {}, "text", "Universo Online S.A."],
+                ["org", {}, "text", ["Universo Online S.A."]],
+              ],
+            ],
+            entities: [
+              {
+                handle: "CAU12",
+                roles: ["administrative"],
+                vcardArray: [
+                  "vcard",
+                  [
+                    ["fn", {}, "text", "Contato Administrativo - UOL"],
+                    ["email", {}, "text", "l-registrobr-uol@corp.uol.com.br"],
+                  ],
+                ],
+              },
+            ],
+          },
+        ],
+      });
+    }
+
+    throw new Error(`Unexpected fetch URL: ${url}`);
+  };
+
+  const result = await collectPublicSiteIntel({
+    sourceUrl: "https://www1.folha.uol.com.br/post",
+    maxPages: 5,
+    requestTimeoutMs: 8_000,
+  });
+
+  assert.equal(result.registeredDomain, "uol.com.br");
+  assert.equal(result.domainOwner.organization, "Universo Online S.A.");
+  assert.equal(result.domainOwner.document, "01.109.184/0004-38");
+  assert.equal(result.domainOwner.email, "l-registrobr-uol@corp.uol.com.br");
+  assert.equal(result.domainOwner.sourceType, "rdap");
+  assert.equal(result.domainOwner.contactStatus, "found");
+  assert.ok(
+    result.contactCandidates.some(
+      (candidate) =>
+        candidate.type === "rdap_email" &&
+        candidate.value === "l-registrobr-uol@corp.uol.com.br",
+    ),
+  );
+});

@@ -12,7 +12,7 @@ type DetectionForIntel = Pick<
 >;
 
 function selectInvestigationColumns() {
-  return "id, organization_id, detection_id, status, requested_at, started_at, completed_at, source_url, final_url, domain, rdap_payload, page_findings, contact_candidates, primary_email, primary_phone, primary_cnpj, primary_contact_page_url, error_message, metadata, created_at, updated_at";
+  return "id, organization_id, detection_id, status, requested_at, started_at, completed_at, source_url, final_url, domain, registered_domain, rdap_payload, rdap_entities, page_findings, contact_candidates, domain_owner_name, domain_owner_organization, domain_owner_document, domain_owner_email, domain_owner_source_type, domain_owner_source_url, domain_owner_contact_status, domain_owner_candidates, primary_email, primary_phone, primary_cnpj, primary_contact_page_url, error_message, metadata, created_at, updated_at";
 }
 
 function castInvestigationRecord(value: unknown): DetectionSiteIntelInvestigationRecord {
@@ -114,9 +114,19 @@ export async function ensureQueuedSiteIntelInvestigation(
       source_url: detection.source_url,
       domain: detection.domain,
       final_url: null,
+      registered_domain: null,
       rdap_payload: {},
+      rdap_entities: [],
       page_findings: [],
       contact_candidates: [],
+      domain_owner_name: null,
+      domain_owner_organization: null,
+      domain_owner_document: null,
+      domain_owner_email: null,
+      domain_owner_source_type: null,
+      domain_owner_source_url: null,
+      domain_owner_contact_status: null,
+      domain_owner_candidates: [],
       primary_email: null,
       primary_phone: null,
       primary_cnpj: null,
@@ -171,9 +181,21 @@ export async function markSiteIntelCompleted(
     detectionId: string;
     finalUrl: string;
     domain: string | null;
+    registeredDomain: string | null;
     rdapPayload: Record<string, unknown> | null;
+    rdapEntities: Array<Record<string, unknown>>;
     pageFindings: Array<Record<string, unknown>>;
     contactCandidates: Array<Record<string, unknown>>;
+    domainOwner: {
+      name: string | null;
+      organization: string | null;
+      document: string | null;
+      email: string | null;
+      sourceType: string;
+      sourceUrl: string | null;
+      contactStatus: string;
+    };
+    domainOwnerCandidates: Array<Record<string, unknown>>;
     primaryEmail: string | null;
     primaryPhone: string | null;
     primaryCnpj: string | null;
@@ -188,9 +210,19 @@ export async function markSiteIntelCompleted(
       completed_at: now,
       final_url: params.finalUrl,
       domain: params.domain,
+      registered_domain: params.registeredDomain,
       rdap_payload: params.rdapPayload ?? {},
+      rdap_entities: params.rdapEntities,
       page_findings: params.pageFindings,
       contact_candidates: params.contactCandidates,
+      domain_owner_name: params.domainOwner.name,
+      domain_owner_organization: params.domainOwner.organization,
+      domain_owner_document: params.domainOwner.document,
+      domain_owner_email: params.domainOwner.email,
+      domain_owner_source_type: params.domainOwner.sourceType,
+      domain_owner_source_url: params.domainOwner.sourceUrl,
+      domain_owner_contact_status: params.domainOwner.contactStatus,
+      domain_owner_candidates: params.domainOwnerCandidates,
       primary_email: params.primaryEmail,
       primary_phone: params.primaryPhone,
       primary_cnpj: params.primaryCnpj,
